@@ -8,6 +8,7 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
 
   :dependencies [[aero "1.1.3"]
+                 [digest "1.4.8"]
                  [integrant "0.7.0"]
                  [org.clojure/clojure "1.10.0"]
                  [trptcolin/versioneer "0.2.0"]]
