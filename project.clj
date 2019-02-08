@@ -12,6 +12,4 @@
                  [integrant "0.7.0"]
                  [org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.logging "0.4.1"]
-                 [trptcolin/versioneer "0.2.0"]]
-
-  :repl-options {:init-ns ow.app})
+                 [trptcolin/versioneer "0.2.0"]])
