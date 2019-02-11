@@ -13,6 +13,4 @@
                  [org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.logging "0.4.1"]
                  [spootnik/signal "0.2.2"]
-                 [trptcolin/versioneer "0.2.0"]]
-
-  :aot [ow.main])
+                 [trptcolin/versioneer "0.2.0"]])

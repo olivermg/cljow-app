@@ -1,11 +1,10 @@
 (ns ow.main
-  (:gen-class)
   (:require [clojure.string :as str]
             [clojure.tools.logging :as log]
             [ow.app :as oa]
             [signal.handler :as sig]))
 
-(defn -main [& args]
+(defn main [& args]  ;; invoke this from your project's -main entrypoint
   (let [profile (-> (or (System/getenv "PROFILE")
                         "prod")
                     str/lower-case
