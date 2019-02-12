@@ -1,52 +1,35 @@
 (ns ow.app.eventbroker
   (:require [clojure.core.async :as a]
+            [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
-
-#_(defrecord Eventbroker [in-pub out-chan dispatch-map
-                        subs]
-
-  owl/Lifecycle
-
-  (start [this]
-    (if-not subs
-      (let [subs (doall
-                  (map (fn [[type handler]]
-                         (let [sub-chan (a/chan)]
-                           (a/sub in-pub type sub-chan)
-                           (a/go-loop [{:keys [::data] :as msg} (a/<! sub-chan)]
-                             #_(println "DATA" data)
-                             (if-not (nil? data)
-                               (do (handler this data)
-                                   (recur (a/<! sub-chan)))
-                               (println "STOP.")))
-                           [type sub-chan]))
-                       dispatch-map))]
-        (assoc this :subs subs))
-      this))
-
-  (stop [this]
-    (if subs
-      (do (dorun
-           (map (fn [[type sub-chan]]
-                  (a/unsub in-pub type sub-chan)
-                  (a/close! sub-chan))
-                subs))
-          (assoc this :subs nil))
-      this)))
 
 (defn start [{{:keys [in-pub dispatch-map subs]} ::eventbroker-config :as this}]
   (if-not subs
     (let [subs (doall
-                (map (fn [[type handler]]
-                       (let [sub-chan (a/chan)]
-                         (a/sub in-pub type sub-chan)
-                         (a/go-loop [{:keys [::data] :as msg} (a/<! sub-chan)]
-                           #_(println "DATA" data)
+                (map (fn [[evtype handler]]
+                       (let [handle (fn [data response-chan]
+                                      (letfn [(handle-ex [e]
+                                                (log/info (format "%s in %s/%s: %s; data: %s"
+                                                                  (type e) (type this) (str evtype)
+                                                                  (.getMessage e) (pr-str data)))
+                                                (a/put! response-chan {::status :error
+                                                                       ::result e}))]
+                                        (try
+                                          (let [result (handler this data)]
+                                            (a/put! response-chan {::status :success
+                                                                   ::result result}))
+                                          (catch Exception e
+                                            (handle-ex e))
+                                          (catch Error e
+                                            (handle-ex e)))))
+                             sub-chan (a/chan)]
+                         (a/sub in-pub evtype sub-chan)
+                         (a/go-loop [{:keys [::data ::response-chan] :as msg} (a/<! sub-chan)]
                            (if-not (nil? data)
-                             (do (handler this data)
+                             (do (handle data response-chan)
                                  (recur (a/<! sub-chan)))
                              (println "STOP.")))
-                         [type sub-chan]))
+                         [evtype sub-chan]))
                      dispatch-map))]
       (assoc-in this [::eventbroker-config :subs] subs))
     this))
@@ -54,8 +37,8 @@
 (defn stop [{{:keys [in-pub dispatch-map subs]} ::eventbroker-config :as this}]
   (if subs
     (do (dorun
-         (map (fn [[type sub-chan]]
-                (a/unsub in-pub type sub-chan)
+         (map (fn [[evtype sub-chan]]
+                (a/unsub in-pub evtype sub-chan)
                 (a/close! sub-chan))
               subs))
         (assoc-in this [::eventbroker-config :subs] nil))
@@ -67,10 +50,20 @@
                             :dispatch-map dispatch-map}]
     (assoc component ::eventbroker-config eventbroker-config)))
 
-(defn emit [{{:keys [out-chan]} ::eventbroker-config :as this} type data]
-  (let [event {::data data
-               ::type type}]
-    (a/put! out-chan event)))
+(defn emit [{{:keys [out-chan]} ::eventbroker-config :as this} evtype data]
+  (let [response-chan (a/promise-chan)
+        event (-> {::response-chan response-chan
+                   ::data data
+                   ::type evtype}
+                  #_(update ::flow-id #(or % (rand-int Integer/MAX_VALUE))))]
+    (a/put! out-chan event)
+    response-chan))
+
+(defn listen-for-response [this response-chan]
+  (let [{:keys [::status ::result] :as response} (a/<!! response-chan)]
+    (case status
+      :success result
+      :error   (throw (ex-info "ERROR" {:error result})))))
 
 
 
