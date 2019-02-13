@@ -48,25 +48,16 @@
     (assoc component ::eventbroker-config eventbroker-config)))
 
 (defn emit [{{:keys [out-chan]} ::eventbroker-config :as this} evtype data]
-  (let [;;;error-chan (a/promise-chan)
-        receipt {::error-chan (a/promise-chan)
+  (let [receipt {::error-chan (a/promise-chan)
                  ::response-chan (a/promise-chan)}
-        #_(-> (or receipt
-                        {::error-chan (a/promise-chan)
-                          ;;;::error-mult (a/mult error-chan)
-                         })
-                    (assoc ::response-chan (a/promise-chan)))
         event {::receipt receipt
                ::data data
                ::type evtype}]
     (a/put! out-chan event)
     receipt))
 
-(defn listen-for-response [this {:keys [::response-chan ::error-chan] :as receipt}]
-  (let [;;;error-chan (a/promise-chan)
-        ;;;_ (a/tap error-mult error-chan)
-        [msg ch] (a/alts!! [response-chan error-chan])]
-    #_(a/untap error-mult error-chan)
+(defn wait [this {:keys [::response-chan ::error-chan] :as receipt}]
+  (let [[msg ch] (a/alts!! [response-chan error-chan])]
     (a/close! response-chan)
     (a/close! error-chan)
     (condp = ch
@@ -97,7 +88,7 @@
                      (let [data    (update data :x inc)
                            receipt (emit this :bar data)
                            _       (emit this :mox data)
-                           result  (listen-for-response this receipt)]
+                           result  (wait this receipt)]
                        (println "FOO RESULT" result)
                        result))}]
       (-> (map->FooComponent {})
@@ -119,7 +110,7 @@
                      (println "BAR" data)
                      (let [data    (update data :x #(* % 2))
                            receipt (emit this :baz data)
-                           result  (listen-for-response this receipt)]
+                           result  (wait this receipt)]
                        (println "BAR RESULT" result)
                        result))}]
       (-> (map->BarComponent {})
@@ -175,10 +166,10 @@
         moxc     (-> (mox-component in-mult out-chan)
                      owl/start)]
     (run-foo1 fooc 321)
-    (Thread/sleep 3000)
-    #_(run-foo1 fooc 123)
-    #_(run-foo1 fooc 222)
-    #_(Thread/sleep 1000)
+    (Thread/sleep 2000)
+    (run-foo1 fooc 123)
+    (run-foo1 fooc 222)
+    (Thread/sleep 2000)
     (doseq [c [moxc bazc barc fooc]]
       (Thread/sleep 50)
       (owl/stop c))))
