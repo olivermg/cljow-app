@@ -95,7 +95,9 @@
           (eventify in-mult out-chan dm))))
 
   (defn run-foo1 [this x]
-    (emit this :foo {:x x}))
+    (->> (emit this :foo {:x x})
+         (wait this)
+         (println "FINAL RESULT")))
 
 
   (defrecord BarComponent []
@@ -165,10 +167,11 @@
                      owl/start)
         moxc     (-> (mox-component in-mult out-chan)
                      owl/start)]
-    (run-foo1 fooc 321)
-    (Thread/sleep 2000)
-    (run-foo1 fooc 123)
-    (run-foo1 fooc 222)
+    #_(doall
+     (pvalues))
+    (run-foo1 fooc 1)
+    (run-foo1 fooc 2)
+    (run-foo1 fooc 3)
     (Thread/sleep 2000)
     (doseq [c [moxc bazc barc fooc]]
       (Thread/sleep 50)
