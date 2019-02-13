@@ -47,30 +47,34 @@
                             :dispatch-map dispatch-map}]
     (assoc component ::eventbroker-config eventbroker-config)))
 
-(defn emit
-  ([{{:keys [out-chan]} ::eventbroker-config :as this} receipt evtype data]
-   (let [error-chan (a/promise-chan)
-         receipt (-> (or receipt
-                         {::error-chan error-chan
-                          ::error-mult (a/mult error-chan)})
-                     (assoc ::response-chan (a/promise-chan)))
-         event {::receipt receipt
-                ::data data
-                ::type evtype}]
-     (a/put! out-chan event)
-     receipt))
-  ([this evtype data]
-   (emit this nil evtype data)))
+(defn emit [{{:keys [out-chan]} ::eventbroker-config :as this} evtype data]
+  (let [;;;error-chan (a/promise-chan)
+        receipt {::error-chan (a/promise-chan)
+                 ::response-chan (a/promise-chan)}
+        #_(-> (or receipt
+                        {::error-chan (a/promise-chan)
+                          ;;;::error-mult (a/mult error-chan)
+                         })
+                    (assoc ::response-chan (a/promise-chan)))
+        event {::receipt receipt
+               ::data data
+               ::type evtype}]
+    (a/put! out-chan event)
+    receipt))
 
-(defn listen-for-response [this {:keys [::response-chan ::error-mult] :as receipt}]
-  (let [error-chan (a/promise-chan)
-        _ (a/tap error-mult error-chan)
+(defn listen-for-response [this {:keys [::response-chan ::error-chan] :as receipt}]
+  (let [;;;error-chan (a/promise-chan)
+        ;;;_ (a/tap error-mult error-chan)
         [msg ch] (a/alts!! [response-chan error-chan])]
-    (a/untap error-mult error-chan)
+    #_(a/untap error-mult error-chan)
+    (a/close! response-chan)
     (a/close! error-chan)
     (condp = ch
       response-chan (::result msg)
-      error-chan    (throw (ex-info "ERROR" {:error (::error msg)})))))
+      error-chan    (let [e (::error msg)]
+                      (throw (if (instance? Throwable e)
+                               e
+                               (ex-info "ERROR" {:error (::error e)})))))))
 
 
 
@@ -87,16 +91,17 @@
     (stop [this]
       (stop this)))
 
-  (defn foo-component [in-chan out-chan dep1]
+  (defn foo-component [in-mult out-chan dep1]
     (let [dm {:foo (fn [this data]
                      (println "FOO" data)
                      (let [data    (update data :x inc)
                            receipt (emit this :bar data)
+                           _       (emit this :mox data)
                            result  (listen-for-response this receipt)]
                        (println "FOO RESULT" result)
                        result))}]
       (-> (map->FooComponent {})
-          (eventify in-chan out-chan dm))))
+          (eventify in-mult out-chan dm))))
 
   (defn run-foo1 [this x]
     (emit this :foo {:x x}))
@@ -109,7 +114,7 @@
     (stop [this]
       (stop this)))
 
-  (defn bar-component [in-chan out-chan]
+  (defn bar-component [in-mult out-chan]
     (let [dm {:bar (fn [this data]
                      (println "BAR" data)
                      (let [data    (update data :x #(* % 2))
@@ -118,7 +123,7 @@
                        (println "BAR RESULT" result)
                        result))}]
       (-> (map->BarComponent {})
-          (eventify in-chan out-chan dm))))
+          (eventify in-mult out-chan dm))))
 
 
   (defrecord BazComponent []
@@ -128,14 +133,33 @@
     (stop [this]
       (stop this)))
 
-  (defn baz-component [in-chan out-chan]
+  (defn baz-component [in-mult out-chan]
     (let [dm {:baz (fn [this data]
                      (println "BAZ" data)
+                     #_(throw (ex-info "AAAAAAARGH" {}))
                      (let [result (update data :x #(/ % 3.0))]
                        (println "BAZ RESULT" result)
                        result))}]
       (-> (map->BazComponent {})
-          (eventify in-chan out-chan dm))))
+          (eventify in-mult out-chan dm))))
+
+
+  (defrecord MoxComponent []
+    owl/Lifecycle
+    (start [this]
+      (start this))
+    (stop [this]
+      (stop this)))
+
+  (defn mox-component [in-mult out-chan]
+    (let [dm {:mox (fn [this data]
+                     (println "MOX" data)
+                     #_(throw (ex-info "MOOOOOOOOOOOOOOORGH" {}))
+                     (let [result (assoc data :y ::y)]
+                       (println "MOX RESULT" result)
+                       result))}]
+      (-> (map->MoxComponent {})
+          (eventify in-mult out-chan dm))))
 
 
   (let [in-chan  (a/chan)
@@ -147,12 +171,14 @@
         barc     (-> (bar-component in-mult out-chan)
                      owl/start)
         bazc     (-> (baz-component in-mult out-chan)
+                     owl/start)
+        moxc     (-> (mox-component in-mult out-chan)
                      owl/start)]
     (run-foo1 fooc 321)
-    (Thread/sleep 1000)
+    (Thread/sleep 3000)
     #_(run-foo1 fooc 123)
     #_(run-foo1 fooc 222)
     #_(Thread/sleep 1000)
-    (owl/stop bazc)
-    (owl/stop barc)
-    (owl/stop fooc)))
+    (doseq [c [moxc bazc barc fooc]]
+      (Thread/sleep 50)
+      (owl/stop c))))
