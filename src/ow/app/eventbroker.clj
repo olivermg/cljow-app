@@ -12,7 +12,7 @@
               (let [handle (fn [data {:keys [::response-chan ::error-chan] :as receipt}]
                              #_(println "HANDLE" data receipt)
                              (letfn [(handle-ex [e]
-                                       (log/info (format "EXCEPTION %s in %s/%s:\n  Message: %s\n  Data: %s\n  Stacktrace: %s"
+                                       (log/info (format "EXCEPTION %s in %s/%s\n >Message: %s\n >Data: %s\n >Stacktrace: %s"
                                                          (type e) (type this) (str evtype)
                                                          (.getMessage e) (pr-str data)
                                                          (with-out-str
