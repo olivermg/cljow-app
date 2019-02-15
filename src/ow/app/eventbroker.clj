@@ -7,14 +7,17 @@
   (if-not in-chan
     (let [in-chan (a/chan)
           in-pub (-> in-mult (a/tap in-chan) (a/pub ::type))]
-      (doall
+      (dorun
        (map (fn [[evtype handler]]
               (let [handle (fn [data {:keys [::response-chan ::error-chan] :as receipt}]
                              #_(println "HANDLE" data receipt)
                              (letfn [(handle-ex [e]
-                                       (log/info (format "%s in %s/%s: %s; data: %s"
+                                       (log/info (format "EXCEPTION %s in %s/%s:\n  Message: %s\n  Data: %s\n  Stacktrace: %s"
                                                          (type e) (type this) (str evtype)
-                                                         (.getMessage e) (pr-str data)))
+                                                         (.getMessage e) (pr-str data)
+                                                         (with-out-str
+                                                           (binding [*err* *out*]
+                                                             (.printStackTrace e)))))
                                        (a/put! error-chan {::error e}))]
                                (try
                                  (let [result (handler this data)]
@@ -28,7 +31,7 @@
                 (a/sub in-pub evtype sub-chan)
                 (println "START" evtype)
                 (a/go-loop [{:keys [::data ::receipt] :as msg} (a/<! sub-chan)]
-                  (println "MSG" (select-keys msg #{::type ::data}))
+                  #_(println "MSG" (select-keys msg #{::type ::data}))
                   (if-not (nil? data)
                     (do (future  ;; NOTE: important to do this asynchronously to prevent deadlocks
                           (handle data receipt))
@@ -83,7 +86,7 @@
 ;;; TEST
 ;;;
 
-(do
+#_(do
 
   (defrecord FooComponent []
     owl/Lifecycle
