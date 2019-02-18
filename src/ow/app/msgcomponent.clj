@@ -91,7 +91,7 @@
 ;;; TEST
 ;;;
 
-(do
+#_(do
 
   (defrecord FooComponent []
     owl/Lifecycle
