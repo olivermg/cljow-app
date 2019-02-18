@@ -1,7 +1,7 @@
-(ns ow.app.eventcomponent-test
+(ns ow.app.msgcomponent-test
   (:require [clojure.core.async :as a]
             [clojure.test :refer :all :as t]
-            [ow.app.eventcomponent :as sut]
+            [ow.app.msgcomponent :as sut]
             [ow.app.lifecycle :as owl]))
 
 (defonce ^:private invocation-history (atom []))

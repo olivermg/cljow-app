@@ -1,9 +1,9 @@
-(ns ow.app.eventcomponent
+(ns ow.app.msgcomponent
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
 
-(defn start [{{:keys [in-mult in-chan dispatch-map]} ::eventcomponent-config :as this}]
+(defn start [{{:keys [in-mult in-chan dispatch-map]} ::config :as this}]
   (if-not in-chan
     (let [in-chan (a/chan)
           in-pub (-> in-mult (a/tap in-chan) (a/pub ::type))]
@@ -38,23 +38,23 @@
                         (recur (a/<! sub-chan)))
                     (println "STOP" evtype)))))
             dispatch-map))
-      (assoc-in this [::eventcomponent-config :in-chan] in-chan))
+      (assoc-in this [::config :in-chan] in-chan))
     this))
 
-(defn stop [{{:keys [in-mult in-chan dispatch-map]} ::eventcomponent-config :as this}]
+(defn stop [{{:keys [in-mult in-chan dispatch-map]} ::config :as this}]
   (if in-chan
     (do (a/untap in-mult in-chan)
         (a/close! in-chan)
-        (assoc-in this [::eventcomponent-config :in-chan] nil))
+        (assoc-in this [::config :in-chan] nil))
     this))
 
 (defn eventify [component in-mult out-chan dispatch-map]
-  (let [eventcomponent-config {:in-mult in-mult
-                               :out-chan out-chan
-                               :dispatch-map dispatch-map}]
-    (assoc component ::eventcomponent-config eventcomponent-config)))
+  (let [config {:in-mult in-mult
+                :out-chan out-chan
+                :dispatch-map dispatch-map}]
+    (assoc component ::config config)))
 
-(defn emit [{{:keys [out-chan]} ::eventcomponent-config :as this} evtype data]
+(defn emit [{{:keys [out-chan]} ::config :as this} evtype data]
   (let [receipt {::error-chan    (a/promise-chan)
                  ::response-chan (a/promise-chan)}
         event {::receipt receipt
