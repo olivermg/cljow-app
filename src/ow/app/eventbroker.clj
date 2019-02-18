@@ -33,7 +33,7 @@
                 (a/go-loop [{:keys [::data ::receipt] :as msg} (a/<! sub-chan)]
                   #_(println "MSG" (select-keys msg #{::type ::data}))
                   (if-not (nil? data)
-                    (do (future  ;; NOTE: important to do this asynchronously to prevent deadlocks
+                    (do (a/thread  ;; NOTE: important to do this asynchronously to prevent deadlocks
                           (handle data receipt))
                         (recur (a/<! sub-chan)))
                     (println "STOP" evtype)))))
@@ -224,10 +224,11 @@
         (a/go-loop [{:keys [type rch] :as msg} (a/<! s)]
           (if-not (nil? msg)
             (do #_(println "MSG" (dissoc msg :rch))
-                (future (a/put! rch (case type
-                                      :foo (do (println "PROC FOO") (-> (emit :bar) wait))
-                                      :bar (do (println "PROC BAR") (-> (emit :baz) wait))
-                                      :baz (do (println "PROC BAZ") :endbaz))))
+                (a/thread
+                  (a/put! rch (case type
+                                :foo (do (println "PROC FOO") (-> (emit :bar) wait))
+                                :bar (do (println "PROC BAR") (-> (emit :baz) wait))
+                                :baz (do (println "PROC BAZ") :endbaz))))
                 (recur (a/<! s)))
             (println "STOP" t)))))
     #_(Thread/sleep 1000)
