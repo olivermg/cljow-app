@@ -8,11 +8,9 @@
 
 (defrecord FooComponent []
   owl/Lifecycle
-  (start [this]
-    (sut/start this)
+  (start* [this parent]
     this)
-  (stop [this]
-    (sut/stop this)
+  (stop* [this parent]
     this))
 
 (defn foo-component [in-mult out-chan]
@@ -25,15 +23,13 @@
                          (sut/emit this :bar2)
                          (sut/wait this)))}]
     (-> (->FooComponent)
-        (sut/eventify in-mult out-chan dm))))
+        (sut/msgify in-mult out-chan dm))))
 
 (defrecord BarComponent []
   owl/Lifecycle
-  (start [this]
-    (sut/start this)
+  (start* [this parent]
     this)
-  (stop [this]
-    (sut/stop this)
+  (stop* [this parent]
     this))
 
 (defn bar-component [in-mult out-chan]
@@ -46,15 +42,13 @@
                          (sut/emit this :baz1)
                          (sut/wait this)))}]
     (-> (->BarComponent)
-        (sut/eventify in-mult out-chan dm))))
+        (sut/msgify in-mult out-chan dm))))
 
 (defrecord BazComponent []
   owl/Lifecycle
-  (start [this]
-    (sut/start this)
+  (start* [this parent]
     this)
-  (stop [this]
-    (sut/stop this)
+  (stop* [this parent]
     this))
 
 (defn baz-component [in-mult out-chan]
@@ -62,7 +56,7 @@
                     (swap! invocation-history #(conj % :baz/baz1))
                     (update data :x #(/ % 3)))}]
     (-> (->BazComponent)
-        (sut/eventify in-mult out-chan dm))))
+        (sut/msgify in-mult out-chan dm))))
 
 
 (defn- init []

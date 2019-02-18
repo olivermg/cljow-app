@@ -3,58 +3,63 @@
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
 
-(defn start [{{:keys [in-mult in-chan dispatch-map]} ::config :as this}]
-  (if-not in-chan
-    (let [in-chan (a/chan)
-          in-pub (-> in-mult (a/tap in-chan) (a/pub ::type))]
-      (dorun
-       (map (fn [[evtype handler]]
-              (let [handle (fn [data {:keys [::response-chan ::error-chan] :as receipt}]
-                             #_(println "HANDLE" data receipt)
-                             (letfn [(handle-ex [e]
-                                       (log/info (format "EXCEPTION %s in %s/%s\n >Message: %s\n >Data: %s\n >Stacktrace: %s"
-                                                         (type e) (type this) (str evtype)
-                                                         (.getMessage e) (pr-str data)
-                                                         (with-out-str
-                                                           (binding [*err* *out*]
-                                                             (.printStackTrace e)))))
-                                       (a/put! error-chan {::error e}))]
-                               (try
-                                 (let [result (handler this data)]
-                                   #_(println "PUT RESPONSE" result response-chan)
-                                   (a/put! response-chan {::result result}))
-                                 (catch Exception e
-                                   (handle-ex e))
-                                 (catch Error e
-                                   (handle-ex e)))))
-                    sub-chan (a/chan)]
-                (a/sub in-pub evtype sub-chan)
-                (println "START" evtype)
-                (a/go-loop [{:keys [::data ::receipt] :as msg} (a/<! sub-chan)]
-                  #_(println "MSG" (select-keys msg #{::type ::data}))
-                  (if-not (nil? data)
-                    (do (a/thread  ;; NOTE: important to do this asynchronously to prevent deadlocks
-                          (handle data receipt))
-                        (recur (a/<! sub-chan)))
-                    (println "STOP" evtype)))))
-            dispatch-map))
-      (assoc-in this [::config :in-chan] in-chan))
-    this))
+(defrecord Msgcomponent [in-mult out-chan dispatch-map
+                         in-chan]
 
-(defn stop [{{:keys [in-mult in-chan dispatch-map]} ::config :as this}]
-  (if in-chan
-    (do (a/untap in-mult in-chan)
-        (a/close! in-chan)
-        (assoc-in this [::config :in-chan] nil))
-    this))
+  owl/Lifecycle
 
-(defn eventify [component in-mult out-chan dispatch-map]
-  (let [config {:in-mult in-mult
-                :out-chan out-chan
-                :dispatch-map dispatch-map}]
-    (assoc component ::config config)))
+  (start* [this parent]
+    (if-not in-chan
+      (let [in-chan (a/chan)
+            in-pub (-> in-mult (a/tap in-chan) (a/pub ::type))]
+        (dorun
+         (map (fn [[evtype handler]]
+                (let [handle (fn [data {:keys [::response-chan ::error-chan] :as receipt}]
+                               #_(println "HANDLE" data receipt)
+                               (letfn [(handle-ex [e]
+                                         (log/info (format "EXCEPTION %s in %s/%s\n >Message: %s\n >Data: %s\n >Stacktrace: %s"
+                                                           (type e) (type this) (str evtype)
+                                                           (.getMessage e) (pr-str data)
+                                                           (with-out-str
+                                                             (binding [*err* *out*]
+                                                               (.printStackTrace e)))))
+                                         (a/put! error-chan {::error e}))]
+                                 (try
+                                   (let [result (handler parent data)]
+                                     #_(println "PUT RESPONSE" result response-chan)
+                                     (a/put! response-chan {::result result}))
+                                   (catch Exception e
+                                     (handle-ex e))
+                                   (catch Error e
+                                     (handle-ex e)))))
+                      sub-chan (a/chan)]
+                  (a/sub in-pub evtype sub-chan)
+                  (println "START" evtype)
+                  (a/go-loop [{:keys [::data ::receipt] :as msg} (a/<! sub-chan)]
+                    #_(println "MSG" (select-keys msg #{::type ::data}))
+                    (if-not (nil? data)
+                      (do (a/thread  ;; NOTE: important to do this asynchronously to prevent deadlocks
+                            (handle data receipt))
+                          (recur (a/<! sub-chan)))
+                      (println "STOP" evtype)))))
+              dispatch-map))
+        (assoc this :in-chan in-chan))
+      this))
 
-(defn emit [{{:keys [out-chan]} ::config :as this} evtype data]
+  (stop* [this parent]
+    (if in-chan
+      (do (a/untap in-mult in-chan)
+          (a/close! in-chan)
+          (assoc this :in-chan nil))
+      this)))
+
+(defn msgify [parent in-mult out-chan dispatch-map]
+  (let [msgcomp (map->Msgcomponent {:in-mult in-mult
+                                    :out-chan out-chan
+                                    :dispatch-map dispatch-map})]
+    (assoc parent ::this msgcomp)))
+
+(defn emit [{{:keys [out-chan]} ::this :as parent} evtype data]
   (let [receipt {::error-chan    (a/promise-chan)
                  ::response-chan (a/promise-chan)}
         event {::receipt receipt
@@ -64,7 +69,7 @@
     (a/put! out-chan event)
     receipt))
 
-(defn wait [this {:keys [::response-chan ::error-chan] :as receipt} & {:keys [timeout-ms]}]
+(defn wait [parent {:keys [::response-chan ::error-chan] :as receipt} & {:keys [timeout-ms]}]
   #_(println "WAIT 1" receipt)
   (let [timeout-chan (a/timeout (or timeout-ms 60000))
         [msg ch] (a/alts!! [response-chan error-chan timeout-chan])]
@@ -86,14 +91,14 @@
 ;;; TEST
 ;;;
 
-#_(do
+(do
 
   (defrecord FooComponent []
     owl/Lifecycle
-    (start [this]
-      (start this))
-    (stop [this]
-      (stop this)))
+    (start* [this parent]
+      this)
+    (stop* [this parent]
+      this))
 
   (defn foo-component [in-mult out-chan dep1]
     (let [dm {:foo (fn [this data]
@@ -105,7 +110,7 @@
                        #_(println "FOO RESULT" result)
                        result))}]
       (-> (map->FooComponent {})
-          (eventify in-mult out-chan dm))))
+          (msgify in-mult out-chan dm))))
 
   (defn run-foo1 [this x]
     #_(Thread/sleep (rand-int 1000))
@@ -116,10 +121,10 @@
 
   (defrecord BarComponent []
     owl/Lifecycle
-    (start [this]
-      (start this))
-    (stop [this]
-      (stop this)))
+    (start* [this parent]
+      this)
+    (stop* [this parent]
+      this))
 
   (defn bar-component [in-mult out-chan]
     (let [dm {:bar (fn [this data]
@@ -132,15 +137,15 @@
                        #_(println "BAR RESULT" result)
                        result))}]
       (-> (map->BarComponent {})
-          (eventify in-mult out-chan dm))))
+          (msgify in-mult out-chan dm))))
 
 
   (defrecord BazComponent []
     owl/Lifecycle
-    (start [this]
-      (start this))
-    (stop [this]
-      (stop this)))
+    (start* [this parent]
+      this)
+    (stop* [this parent]
+      this))
 
   (defn baz-component [in-mult out-chan]
     (let [dm {:baz (fn [this data]
@@ -150,15 +155,15 @@
                        #_(println "BAZ RESULT" result)
                        result))}]
       (-> (map->BazComponent {})
-          (eventify in-mult out-chan dm))))
+          (msgify in-mult out-chan dm))))
 
 
   (defrecord MoxComponent []
     owl/Lifecycle
-    (start [this]
-      (start this))
-    (stop [this]
-      (stop this)))
+    (start* [this parent]
+      this)
+    (stop* [this parent]
+      this))
 
   (defn mox-component [in-mult out-chan]
     (let [dm {:mox (fn [this data]
@@ -168,7 +173,7 @@
                        (println "MOX RESULT" result)
                        result))}]
       (-> (map->MoxComponent {})
-          (eventify in-mult out-chan dm))))
+          (msgify in-mult out-chan dm))))
 
 
   (let [in-chan-pre (a/chan)
@@ -199,43 +204,3 @@
     (doseq [c [moxc bazc barc fooc]]
       (Thread/sleep 50)
       (owl/stop c))))
-
-
-
-#_(let [c0 (a/chan)
-      m  (a/mult c0)]
-  (letfn [(emit [t]
-            (let [rch (a/promise-chan)]
-              #_(println "EMIT" {:type t})
-              (a/put! c0 {:type t :rch rch})
-              rch))
-          (wait [rch]
-            (let [to (a/timeout 3000)
-                  [msg ch] (a/alts!! [rch to])]
-              (a/close! rch)
-              (condp = ch
-                rch (do #_(println "RCH" msg) msg)
-                to  (throw (ex-info "TIMEOUT" {:rch rch})))))]
-    (doseq [t [:foo :bar :baz]]
-      (let [p (-> m (a/tap (a/chan)) (a/pub :type))
-            s (a/chan)]
-        (println "START" t)
-        (a/sub p t s)
-        (a/go-loop [{:keys [type rch] :as msg} (a/<! s)]
-          (if-not (nil? msg)
-            (do #_(println "MSG" (dissoc msg :rch))
-                (a/thread
-                  (a/put! rch (case type
-                                :foo (do (println "PROC FOO") (-> (emit :bar) wait))
-                                :bar (do (println "PROC BAR") (-> (emit :baz) wait))
-                                :baz (do (println "PROC BAZ") :endbaz))))
-                (recur (a/<! s)))
-            (println "STOP" t)))))
-    #_(Thread/sleep 1000)
-    (dorun
-     (pvalues
-      (->> (emit :foo) wait (println "FINAL1"))
-      (->> (emit :foo) wait (println "FINAL2"))
-      (->> (emit :foo) wait (println "FINAL3"))))
-    (Thread/sleep 1000)
-    (a/close! c0)))
