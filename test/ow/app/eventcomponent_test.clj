@@ -1,7 +1,7 @@
-(ns ow.app.eventbroker-test
+(ns ow.app.eventcomponent-test
   (:require [clojure.core.async :as a]
             [clojure.test :refer :all :as t]
-            [ow.app.eventbroker :as sut]
+            [ow.app.eventcomponent :as sut]
             [ow.app.lifecycle :as owl]))
 
 (defonce ^:private invocation-history (atom []))
