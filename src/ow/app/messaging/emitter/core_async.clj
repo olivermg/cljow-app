@@ -17,25 +17,25 @@
   owme/Emitter
 
   (emit [this type data]
-    (let [receipt {::error-chan    (a/promise-chan)
-                   ::response-chan (a/promise-chan)}
-          msg {::receipt receipt
-               ::data    data
-               ::type    type}]
+    (let [receipt {:ow.app.messaging/error-chan    (a/promise-chan)
+                   :ow.app.messaging/response-chan (a/promise-chan)}
+          msg {:ow.app.messaging/receipt receipt
+               :ow.app.messaging/data    data
+               :ow.app.messaging/type    type}]
       (a/put! out msg)
       receipt))
 
-  (wait [this {:keys [::error-chan ::response-chan] :as receipt}]
+  (wait [this {:keys [:ow.app.messaging/error-chan :ow.app.messaging/response-chan] :as receipt}]
     (let [timeout-chan (a/timeout wait-timeout-ms)
           [msg ch]     (a/alts!! [response-chan error-chan timeout-chan])]
       (a/close! response-chan)
       (a/close! error-chan)
       (condp = ch
-        response-chan (::result msg)
-        error-chan    (let [e (::error msg)]
+        response-chan (:ow.app.messaging/result msg)
+        error-chan    (let [e (:ow.app.messaging/error msg)]
                         (throw (if (instance? Throwable e)
                                  e
-                                 (ex-info "ERROR" {:error (::error e)
+                                 (ex-info "ERROR" {:error   (:ow.app.messaging/error e)
                                                    :receipt receipt}))))
         timeout-chan  (throw (ex-info "TIMEOUT" {:receipt receipt}))))))
 
