@@ -3,7 +3,7 @@
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
 
-(defrecord Msgcomponent [in-mult out-chan dispatch-map
+(defrecord Msgcomponent [in-mult out-chan dispatch-map wait-timeout-ms
                          in-chan]
 
   owl/Lifecycle
@@ -53,10 +53,11 @@
           (assoc this :in-chan nil))
       this)))
 
-(defn msgify [parent in-mult out-chan dispatch-map]
+(defn msgify [parent in-mult out-chan dispatch-map & {:keys [wait-timeout-ms]}]
   (let [msgcomp (map->Msgcomponent {:in-mult in-mult
                                     :out-chan out-chan
-                                    :dispatch-map dispatch-map})]
+                                    :dispatch-map dispatch-map
+                                    :wait-timeout-ms (or wait-timeout-ms 10000)})]
     (assoc parent ::this msgcomp)))
 
 (defn emit [{{:keys [out-chan]} ::this :as parent} evtype data]
@@ -69,9 +70,9 @@
     (a/put! out-chan event)
     receipt))
 
-(defn wait [parent {:keys [::response-chan ::error-chan] :as receipt} & {:keys [timeout-ms]}]
+(defn wait [{{:keys [wait-timeout-ms]} ::this :as parent} {:keys [::response-chan ::error-chan] :as receipt}]
   #_(println "WAIT 1" receipt)
-  (let [timeout-chan (a/timeout (or timeout-ms 60000))
+  (let [timeout-chan (a/timeout wait-timeout-ms)
         [msg ch] (a/alts!! [response-chan error-chan timeout-chan])]
     #_(println "WAIT 2")
     (a/close! response-chan)
@@ -84,6 +85,10 @@
                                (ex-info "ERROR" {:error (::error e)
                                                  :receipt receipt}))))
       timeout-chan  (throw (ex-info "TIMEOUT" {:receipt receipt})))))
+
+(defn emit-sync [parent evtype data]
+  (->> (emit parent evtype data)
+       (wait parent)))
 
 
 
