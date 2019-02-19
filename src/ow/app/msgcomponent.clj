@@ -3,6 +3,13 @@
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
 
+(defprotocol MessageBroker
+  (emit [this type data])
+  (wait [this receipt]))
+
+(defprotocol Messageable
+  (get-dispatch-map [this]))
+
 (defrecord Msgcomponent [in-mult out-chan dispatch-map wait-timeout-ms
                          in-chan]
 
@@ -51,7 +58,15 @@
       (do (a/untap in-mult in-chan)
           (a/close! in-chan)
           (assoc this :in-chan nil))
-      this)))
+      this))
+
+  MessageBroker
+
+  (emit [this type data]
+    )
+
+  (wait [this type data]
+    ))
 
 (defn msgify [parent in-mult out-chan dispatch-map & {:keys [wait-timeout-ms]}]
   (let [msgcomp (map->Msgcomponent {:in-mult in-mult

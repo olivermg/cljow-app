@@ -2,9 +2,9 @@
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]
-            [ow.app.message-broker :as owm]))
+            [ow.app.messaging.emitter :as owme]))
 
-(defrecord CoreAsync [in out]
+(defrecord CoreAsyncEmitter [in out]
 
   owl/Lifecycle
 
@@ -14,7 +14,7 @@
   (stop [this]
     this)
 
-  owm/MessageBroker
+  owme/Emitter
 
   (emit [this type data]
     )
@@ -22,6 +22,6 @@
   (wait [this receipt]
     ))
 
-(defn core-async [in out]
-  (map->CoreAsync {:in  in
-                   :out out}))
+(defn core-async-emitter [in out]
+  (map->CoreAsyncEmitter {:in  in
+                          :out out}))
