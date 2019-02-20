@@ -1,6 +1,6 @@
 (ns ow.app.config
-  (:require [integrant.core :as ig]
-            [aero.core :as aero]))
+  (:require [aero.core :as aero]
+            [integrant.core :as ig]))
 
 
 (defmethod aero/reader 'ig/ref [opts tag value]
