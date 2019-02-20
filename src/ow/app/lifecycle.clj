@@ -1,10 +1,10 @@
 (ns ow.app.lifecycle)
 
 (defprotocol Lifecycle
-  (start* [this parent])
-  (stop* [this parent]))
+  (start [this])
+  (stop [this]))
 
-(defn start [this]
+#_(defn start [this]
   (let [this (reduce (fn [t [k _]]
                        (if (= (-> k name keyword) :this)
                          (update t k #(when % (start* % t)))
@@ -13,7 +13,7 @@
                      this)]
     (start* this nil)))
 
-(defn stop [this]
+#_(defn stop [this]
   (let [this (stop* this nil)]
     (reduce (fn [t [k _]]
               (if (= (-> k name keyword) :this)
