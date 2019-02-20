@@ -2,4 +2,8 @@
 
 (defprotocol Emitter
   (emit [this type data])
-  (wait [this receipt]))
+  (recv [this receipt]))
+
+(defn emit-sync [this type data]
+  (->> (emit this type data)
+       (recv this)))

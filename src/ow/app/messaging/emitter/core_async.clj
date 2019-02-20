@@ -25,7 +25,7 @@
       (a/put! out msg)
       receipt))
 
-  (wait [this {:keys [:ow.app.messaging/error-chan :ow.app.messaging/response-chan] :as receipt}]
+  (recv [this {:keys [:ow.app.messaging/error-chan :ow.app.messaging/response-chan] :as receipt}]
     (let [timeout-chan (a/timeout wait-timeout-ms)
           [msg ch]     (a/alts!! [response-chan error-chan timeout-chan])]
       (a/close! response-chan)
