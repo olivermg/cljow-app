@@ -53,6 +53,7 @@
   owmr/Receiver)
 
 (defn core-async-receiver [in out components]
+  (owmc/validate-components components)
   (let [dispatch-xf (comp (map (fn [component]
                                  [component (owmc/get-dispatch-map component)]))
                           (map (fn [[component dispatch-map]]
