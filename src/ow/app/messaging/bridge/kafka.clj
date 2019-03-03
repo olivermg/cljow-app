@@ -28,6 +28,7 @@
                         topic)
                 smsg (pr-str msg)  ;; TODO: use nippy for serialization
                 ]
+            (println "sending" smsg)
             (.send kproducer (ProducerRecord. topic (hash smsg) smsg))  ;; TODO: does any other key make more sense?
             (recur (a/<! pipe))))
         (assoc this :pipe pipe :producer kproducer))
@@ -54,17 +55,28 @@
     (if-not consumer
       (let [kprops (doto (Properties.)
                      (.put ConsumerConfig/CLIENT_ID_CONFIG "kafkainbridge1")
+                     (.put ConsumerConfig/GROUP_ID_CONFIG "kafkabridgegroup")
                      (.put ConsumerConfig/BOOTSTRAP_SERVERS_CONFIG "kafka:9092")
-                     (.put ConsumerConfig/KEY_DESERIALIZER_CLASS_CONFIG "org.apache.kafka.common.serialization.StringSerializer")
-                     (.put ConsumerConfig/VALUE_DESERIALIZER_CLASS_CONFIG "org.apache.kafka.common.serialization.StringSerializer"))
+                     (.put ConsumerConfig/KEY_DESERIALIZER_CLASS_CONFIG "org.apache.kafka.common.serialization.StringDeserializer")
+                     (.put ConsumerConfig/VALUE_DESERIALIZER_CLASS_CONFIG "org.apache.kafka.common.serialization.StringDeserializer"))
             kconsumer (KafkaConsumer. kprops)
+            _ (println :x1)
             _ (.subscribe kconsumer (-> [topic] to-array Arrays/asList))
+            _ (println :x2)
             fut (future
-                  (loop [recs (.poll kconsumer 100)]
-                    (doseq [rec recs]
-                      (let [dmsg (-> rec .value edn/read-string)]
-                        (a/put! ch dmsg)))
-                    (recur (.poll kconsumer 100))))]
+                  (try
+                    (println :x3)
+                    (loop [recs (.poll kconsumer 500)]
+                      (println :x4)
+                      (doseq [rec recs]
+                        (let [dmsg (-> rec .value edn/read-string)]
+                          (a/put! ch dmsg)))
+                      (recur (.poll kconsumer 100)))
+                    (catch Exception e
+                      (println "EXCEPTION" e))
+                    (catch Error e
+                      (println "ERROR" e))))]
+        (println :x5)
         (assoc this :consumer kconsumer :future fut))
       this))
 
