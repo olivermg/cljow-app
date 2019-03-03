@@ -75,5 +75,6 @@
           (assoc this :consumer nil :future nil))
       this)))
 
-(defn kafka-in-bridge [ch]
-  (map->KafkaInBridge {:ch ch}))
+(defn kafka-in-bridge [ch topic]
+  (map->KafkaInBridge {:ch ch
+                       :topic topic}))
