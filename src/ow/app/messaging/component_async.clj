@@ -3,31 +3,38 @@
             [clojure.tools.logging :as log]
             [ow.app.lifecycle :as owl]))
 
-(defrecord Component [name in-ch out-ch handler
-                      in-pipe]
+(defrecord Component [name in-ch out-ch handler topic topic-fn
+                      in-pipe pub sub]
 
   owl/Lifecycle
 
   (start [this]
     (if-not in-pipe
-      (let [in-pipe (a/pipe in-ch (a/chan))]
-        (log/info "Starting" name)
-        (a/go-loop [msg (a/<! in-pipe)]
+      (let [_       (log/info "Starting" name)
+            in-pipe (a/pipe in-ch (a/chan))
+            pub     (a/pub in-pipe topic-fn)
+            sub     (a/sub pub topic (a/chan))]
+        (a/go-loop [msg (a/<! sub)]
           (if-not (nil? msg)
             (do (future
                   (handler this msg))
-                (recur (a/<! in-pipe)))
+                (recur (a/<! sub)))
             (log/info "Stopped" name)))
-        (assoc this :in-pipe in-pipe))
+        (assoc this :in-pipe in-pipe :pub pub :sub sub))
       this))
 
   (stop [this]
     (when in-pipe
       (a/close! in-pipe))
-    (assoc this :in-pipe nil)))
+    (when (and pub sub)
+      (a/unsub pub topic sub)
+      (a/close! sub))
+    (assoc this :in-pipe nil :pub nil :sub nil)))
 
-(defn component [name in-ch out-ch handler]
+(defn component [name in-ch out-ch topic handler & {:keys [topic-fn]}]
   (map->Component {:name name
                    :in-ch in-ch
                    :out-ch out-ch
-                   :handler handler}))
+                   :handler handler
+                   :topic topic
+                   :topic-fn (or topic-fn :topic)}))
