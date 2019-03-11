@@ -1,10 +1,20 @@
 (ns ow.app.messaging)
 
-(defn get-id [message]
-  (get message ::id))
+(defn get-flow-id [message]
+  (get message ::flow-id))
+
+(defn get-topic [message]
+  (get message ::topic))
+
+(defn get-data [message]
+  (get message ::data))
 
 (defn message
-  ([related-message data]
-   (assoc data ::id (get-id related-message)))
-  ([data]
-   (assoc data ::id (rand-int Integer/MAX_VALUE))))
+  ([related-message topic data]
+   {::topic topic
+    ::flow-id (get-flow-id related-message)
+    ::data data})
+  ([topic data]
+   {::topic topic
+    ::flow-id (rand-int Integer/MAX_VALUE)
+    ::data data}))
