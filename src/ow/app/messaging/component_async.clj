@@ -37,4 +37,4 @@
                    :out-ch out-ch
                    :handler handler
                    :topic topic
-                   :topic-fn (or topic-fn :topic)}))
+                   :topic-fn (or topic-fn :ow.app.messaging/topic)}))
