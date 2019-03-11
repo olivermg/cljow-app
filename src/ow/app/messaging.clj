@@ -1,4 +1,5 @@
-(ns ow.app.messaging)
+(ns ow.app.messaging
+  (:require [clojure.core.async :as a]))
 
 (defn get-flow-id [message]
   (get message ::flow-id))
@@ -18,3 +19,6 @@
    {::topic topic
     ::flow-id (rand-int Integer/MAX_VALUE)
     ::data data}))
+
+(defn put! [{:keys [out-ch] :as this} msg]
+  (a/put! out-ch msg))
