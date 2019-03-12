@@ -64,9 +64,9 @@
                 (handler this msg))
               (recur (a/<! sub)))
           (log/info "Stopped event component" name)))
-      (assoc-in [this ::runtime] {:in-pipe in-pipe
-                                  :pub pub
-                                  :sub sub}))
+      (assoc this ::runtime {:in-pipe in-pipe
+                             :pub pub
+                             :sub sub}))
     this))
 
 (defn stop [{{:keys [topic]} ::config {:keys [in-pipe pub sub]} ::runtime :as this}]
@@ -75,4 +75,4 @@
   (when (and pub sub)
     (a/unsub pub topic sub)
     (a/close! sub))
-  (assoc-in [this ::runtime] {}))
+  (assoc this ::runtime {}))
