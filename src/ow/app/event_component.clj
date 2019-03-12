@@ -76,3 +76,23 @@
     (a/unsub pub topic sub)
     (a/close! sub))
   (assoc this ::runtime {}))
+
+
+
+#_(defn get-flow-id [event]
+  (get event ::flow-id))
+
+(defn get-topic [event]
+  (get event ::topic))
+
+(defn get-data [event]
+  (get event ::data))
+
+(defn event
+  ([topic data]
+   {::topic topic
+    ;;;::flow-id (rand-int Integer/MAX_VALUE)
+    ::data data}))
+
+(defn emit [{{:keys [out-ch]} ::config :as this} event]
+  (a/put! out-ch event))
