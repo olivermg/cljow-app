@@ -1,7 +1,7 @@
 (ns ow.app.event-component
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]
-            [ow.app.lifecycle :as owl]))
+            #_[ow.app.lifecycle :as owl]))
 
 #_(defrecord Component [name id in-ch out-ch handler topic topic-fn
                       in-pipe pub sub]
@@ -42,36 +42,36 @@
 
 
 
-(defn init [this name in-ch out-ch topic handler & {:keys [topic-fn]}]
+(defn init [this name recv-ch emit-ch topic handler & {:keys [topic-fn]}]
   (assoc this
          ::config {:name name
-                   :in-ch in-ch
-                   :out-ch out-ch
+                   :recv-ch recv-ch
+                   :emit-ch emit-ch
                    :topic topic
                    :topic-fn (or topic-fn ::topic)
                    :handler handler}
          ::runtime {}))
 
-(defn start [{{:keys [name in-ch topic topic-fn handler]} ::config {:keys [in-pipe pub sub]} ::runtime :as this}]
-  (if-not in-pipe
-    (let [_       (log/info "Starting event component" name)
-          in-pipe (a/pipe in-ch (a/chan))
-          pub     (a/pub in-pipe topic-fn)
-          sub     (a/sub pub topic (a/chan))]
+(defn start [{{:keys [name recv-ch topic topic-fn handler]} ::config {:keys [recv-pipe pub sub]} ::runtime :as this}]
+  (if-not recv-pipe
+    (let [_         (log/info "Starting event component" name)
+          recv-pipe (a/pipe recv-ch (a/chan))
+          pub       (a/pub recv-pipe topic-fn)
+          sub       (a/sub pub topic (a/chan))]
       (a/go-loop [msg (a/<! sub)]
         (if-not (nil? msg)
           (do (future
                 (handler this msg))
               (recur (a/<! sub)))
           (log/info "Stopped event component" name)))
-      (assoc this ::runtime {:in-pipe in-pipe
+      (assoc this ::runtime {:recv-pipe recv-pipe
                              :pub pub
                              :sub sub}))
     this))
 
-(defn stop [{{:keys [topic]} ::config {:keys [in-pipe pub sub]} ::runtime :as this}]
-  (when in-pipe
-    (a/close! in-pipe))
+(defn stop [{{:keys [topic]} ::config {:keys [recv-pipe pub sub]} ::runtime :as this}]
+  (when recv-pipe
+    (a/close! recv-pipe))
   (when (and pub sub)
     (a/unsub pub topic sub)
     (a/close! sub))
