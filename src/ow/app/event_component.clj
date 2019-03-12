@@ -58,10 +58,10 @@
           recv-pipe (a/pipe recv-ch (a/chan))
           pub       (a/pub recv-pipe topic-fn)
           sub       (a/sub pub topic (a/chan))]
-      (a/go-loop [msg (a/<! sub)]
-        (if-not (nil? msg)
+      (a/go-loop [event (a/<! sub)]
+        (if-not (nil? event)
           (do (future
-                (handler this msg))
+                (handler this event))
               (recur (a/<! sub)))
           (log/info "Stopped event component" name)))
       (assoc this ::runtime {:recv-pipe recv-pipe
