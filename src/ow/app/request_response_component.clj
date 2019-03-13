@@ -64,35 +64,24 @@
 
 
 
-(defn init-requester [this name request-ch response-ch topic]
+(defn init-requester [this name request-ch response-ch]
   (assoc this
          ::requester-config {:name name
                              :request-ch request-ch
-                             :response-ch response-ch
-                             :topic topic}
+                             :response-ch response-ch}
          ::requester-runtime {}))
 
-(defn start-requester [{{:keys [name request-ch response-ch topic]} ::requester-config
-                        {:keys [response-pipe response-pub response-sub response-id-pub]} ::requester-runtime
+(defn start-requester [{{:keys [name request-ch response-ch]} ::requester-config
+                        {:keys [response-pipe]} ::requester-runtime
                         :as this}]
   (if-not response-pipe
     (let [_               (log/info "Starting request-response requester component" name)
-          response-pipe   (a/pipe response-ch (a/chan))
-          response-pub    (a/pub response-pipe ::topic)
-          response-sub    (a/sub response-pub topic (a/chan))
-          response-id-pub (a/pub response-sub ::id)]
-      (assoc this ::requester-runtime {:response-pipe response-pipe
-                                       :response-pub response-pub
-                                       :response-sub response-sub
-                                       :response-id-pub response-id-pub}))
+          response-pipe   (a/pipe response-ch (a/chan))]
+      (assoc this ::requester-runtime {:response-pipe response-pipe}))
     this))
 
-(defn stop-requester [{{:keys [topic]} ::requester-config
-                       {:keys [response-pipe response-pub response-sub response-id-pub]} ::requester-runtime
+(defn stop-requester [{{:keys [response-pipe]} ::requester-runtime
                        :as this}]
-  (when (and response-pub response-sub)
-    (a/unsub response-pub topic response-sub)
-    (a/close! response-sub))
   (when response-pipe
     (a/close! response-pipe))
   (assoc this ::requester-runtime {}))
@@ -102,7 +91,7 @@
 (defn init [this name request-in-ch response-out-ch request-out-ch response-in-ch topic handler]
   (-> this
       (init-responder name request-in-ch response-out-ch topic handler)
-      (init-requester name request-out-ch response-in-ch topic)))
+      (init-requester name request-out-ch response-in-ch)))
 
 (defn start [this]
   (-> this
@@ -117,13 +106,16 @@
 
 
 (defn request [{{:keys [request-ch]} ::requester-config
-                {:keys [response-id-pub]} ::requester-runtime
+                {:keys [response-pipe]} ::requester-runtime
                 :as this}
                request
                & {:keys [timeout]}]
-  (let [p (promise)
-        req-id (get-id request)
-        sub (a/sub response-id-pub req-id (a/promise-chan))]
+  (let [p         (promise)
+        req-id    (get-id request)
+        topic     (get-topic request)
+        pub       (a/pub response-pipe (fn [res] [(get res ::topic) (get res ::id)]))
+        sub-topic [topic req-id]
+        sub       (a/sub pub sub-topic (a/promise-chan))]
     (a/go
       (let [timeout-ch    (a/timeout (or timeout 30000))
             [response ch] (a/alts! [sub timeout-ch])]
@@ -132,44 +124,62 @@
                        response
                        (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
                      (ex-info "timeout while waiting for response" {:request request})))
-        (a/unsub response-id-pub req-id sub)
+        (a/unsub pub sub-topic sub)
         (a/close! sub)))
     (a/put! request-ch request)
     p))
 
 
 
-#_(let [topic :topic1
-      req-out (a/chan)
-      res-in  (a/chan)
-      req-in  (a/chan)
-      res-out (a/chan)
-      _       (a/pipe req-out req-in)
-      _       (a/pipe res-out res-in)
-      c1      (-> {}
-                  (init-requester "comp1" req-out res-in topic)
-                  start-requester)
-      c2      (-> {}
-                  (init-responder "comp2" req-in res-out topic
-                                  (fn [this request]
-                                    (println "c2: got request" request)
-                                    (Thread/sleep 500)
-                                    {:bar (str (:foo request) "-bar")}))
-                  start-responder)
-      req1    (new-request topic {:foo "foo1"})
-      req2    (new-request topic {:foo "foo2"})]
-  (Thread/sleep 1000)
-  (->> (request c1 req1 :timeout 10000)
-       deref
-       (println "user response 1:"))
-  (Thread/sleep 200)
-  (->> (request c1 req2 :timeout 10000)
-       deref
-       (println "user response 2:"))
-  (Thread/sleep 1000)
-  (stop-responder c2)
-  (stop-requester c1)
-  (a/close! res-out)
-  (a/close! req-in)
-  (a/close! res-in)
-  (a/close! req-out))
+#_(do (import [java.util Date])
+    (let [topic1 :topic1
+          topic2 :topic2
+          req-out (a/chan)
+          res-in  (a/chan)
+          req-in  (a/chan)
+          res-out (a/chan)
+          _       (a/pipe req-out req-in)
+          _       (a/pipe res-out res-in)
+          req-in-mult (a/mult req-in)
+          res-in-mult (a/mult res-in)
+          c1      (-> {}
+                      (init-requester "comp1" req-out (a/tap res-in-mult (a/chan)))
+                      start-requester)
+          c2      (-> {}
+                      (init-responder "comp2" (a/tap req-in-mult (a/chan)) res-out topic1
+                                      (fn [this request]
+                                        (println "c2: got request:" request)
+                                        (Thread/sleep 500)
+                                        {:bar (str (:foo request) "-bar")}))
+                      start-responder)
+          c3      (-> {}
+                      (init-responder "comp3" (a/tap req-in-mult (a/chan)) res-out topic2
+                                      (fn [this request]
+                                        (println "c3: got request:" request)
+                                        (Thread/sleep 300)
+                                        {:baz (str (:foo request) "-baz")}))
+                      start-responder)
+          req11   (new-request topic1 {:foo "foo11"})
+          req12   (new-request topic2 {:foo "foo12"})
+          req21   (new-request topic1 {:foo "foo21"})
+          req22   (new-request topic2 {:foo "foo22"})]
+      (Thread/sleep 1000)
+      (println "pre req1:" (Date.))
+      (doseq [v (pvalues @(request c1 req11 :timeout 10000)
+                         @(request c1 req12 :timeout 10000))]
+        (println "v1:" v))
+      (println "post req1:" (Date.))
+      (Thread/sleep 200)
+      #_(println "pre req2:" (Date.))
+      #_(doseq [v (pvalues @(request c1 req21 :timeout 10000)
+                         @(request c1 req22 :timeout 10000))]
+        (println "v2:" v))
+      #_(println "post req2:" (Date.))
+      (Thread/sleep 1000)
+      (stop-responder c3)
+      (stop-responder c2)
+      (stop-requester c1)
+      (a/close! res-out)
+      (a/close! req-in)
+      (a/close! res-in)
+      (a/close! req-out)))
