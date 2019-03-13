@@ -2,55 +2,6 @@
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]))
 
-(defn init [this name request-in-ch response-out-ch request-out-ch response-in-ch topic handler]
-  (assoc this
-         ::config {:name name
-                   :request-in-ch request-in-ch
-                   :response-out-ch response-out-ch
-                   :request-out-ch request-out-ch
-                   :response-in-ch response-in-ch
-                   :topic topic
-                   :handler handler}
-         ::runtime {}))
-
-(defn start [{{:keys [name request-in-ch response-out-ch request-out-ch response-in-ch topic handler]} ::config
-              {:keys [request-in-pipe request-in-pub request-in-sub
-                      response-in-pipe response-in-pub response-in-sub response-in-id-pub]} ::runtime
-              :as this}]
-  (if-not request-in-pipe
-    (let [_                  (log/info "Starting request-response component" name)
-          request-in-pipe    (a/pipe request-in-ch (a/chan))
-          request-in-pub     (a/pub request-in-pipe ::topic)
-          request-in-sub     (a/sub request-in-pub topic (a/chan))
-          response-in-pipe   (a/pipe response-in-ch (a/chan))
-          response-in-pub    (a/pub response-in-pipe ::topic)
-          response-in-sub    (a/sub response-in-pub topic (a/chan))
-          response-in-id-pub (a/pub response-in-sub ::id)]
-      (a/go-loop [request (a/<! request-in-sub)]
-        (if-not (nil? request)
-          (do (future
-                (handler this request))
-              (recur (a/<! request-in-sub)))
-          (log/info "Stopped request-response component" name)))
-      (assoc this ::runtime {:request-in-pipe request-in-pipe
-                             :request-in-pub request-in-pub
-                             :request-in-sub request-in-sub
-                             :response-in-pipe response-in-pipe
-                             :response-in-pub response-in-pub
-                             :response-in-sub response-in-sub
-                             :response-in-id-pub response-in-id-pub}))
-    this))
-
-(defn stop [{{:keys [topic]} ::config {:keys [request-pipe pub sub]} ::runtime :as this}]
-  (when request-pipe
-    (a/close! request-pipe))
-  (when (and pub sub)
-    (a/unsub pub topic sub)
-    (a/close! sub))
-  (assoc this ::runtime {}))
-
-
-
 (defn get-id [request-or-response]
   (get request-or-response ::id))
 
@@ -72,49 +23,153 @@
 
 
 
-(defn request [{{:keys [request-out-ch]} ::config {:keys [response-in-id-pub]} ::runtime :as this} request & {:keys [timeout]}]
+(defn init-responder [this name request-ch response-ch topic handler]
+  (assoc this
+         ::responder-config {:name name
+                             :request-ch request-ch
+                             :response-ch response-ch
+                             :topic topic
+                             :handler handler}
+         ::responder-runtime {}))
+
+(defn start-responder [{{:keys [name request-ch response-ch topic handler]} ::responder-config
+                        {:keys [request-pipe]} ::responder-runtime
+                        :as this}]
+  (if-not request-pipe
+    (let [_            (log/info "Starting request-response responder component" name)
+          request-pipe (a/pipe request-ch (a/chan))
+          request-pub  (a/pub request-pipe ::topic)
+          request-sub  (a/sub request-pub topic (a/chan))]
+      (a/go-loop [request (a/<! request-sub)]
+        (if-not (nil? request)
+          (do (future  ;; TODO: add some error handling
+                (->> request
+                     get-data
+                     (handler this)
+                     (new-response request)
+                     (a/put! response-ch)))
+              (recur (a/<! request-sub)))
+          (do (a/unsub request-pub topic request-sub)
+              (a/close! request-sub)
+              (log/info "Stopped request-response responder component" name))))
+      (assoc this ::responder-runtime {:request-pipe request-pipe}))
+    this))
+
+(defn stop-responder [{{:keys [topic]} ::responder-config
+                       {:keys [request-pipe]} ::responder-runtime
+                       :as this}]
+  (when request-pipe
+    (a/close! request-pipe))
+  (assoc this ::responder-runtime {}))
+
+
+
+(defn init-requester [this name request-ch response-ch topic]
+  (assoc this
+         ::requester-config {:name name
+                             :request-ch request-ch
+                             :response-ch response-ch
+                             :topic topic}
+         ::requester-runtime {}))
+
+(defn start-requester [{{:keys [name request-ch response-ch topic]} ::requester-config
+                        {:keys [response-pipe response-pub response-sub response-id-pub]} ::requester-runtime
+                        :as this}]
+  (if-not response-pipe
+    (let [_               (log/info "Starting request-response requester component" name)
+          response-pipe   (a/pipe response-ch (a/chan))
+          response-pub    (a/pub response-pipe ::topic)
+          response-sub    (a/sub response-pub topic (a/chan))
+          response-id-pub (a/pub response-sub ::id)]
+      (assoc this ::requester-runtime {:response-pipe response-pipe
+                                       :response-pub response-pub
+                                       :response-sub response-sub
+                                       :response-id-pub response-id-pub}))
+    this))
+
+(defn stop-requester [{{:keys [topic]} ::requester-config
+                       {:keys [response-pipe response-pub response-sub response-id-pub]} ::requester-runtime
+                       :as this}]
+  (when (and response-pub response-sub)
+    (a/unsub response-pub topic response-sub)
+    (a/close! response-sub))
+  (when response-pipe
+    (a/close! response-pipe))
+  (assoc this ::requester-runtime {}))
+
+
+
+(defn init [this name request-in-ch response-out-ch request-out-ch response-in-ch topic handler]
+  (-> this
+      (init-responder name request-in-ch response-out-ch topic handler)
+      (init-requester name request-out-ch response-in-ch topic)))
+
+(defn start [this]
+  (-> this
+      start-responder
+      start-requester))
+
+(defn stop [this]
+  (-> this
+      stop-requester
+      stop-responder))
+
+
+
+(defn request [{{:keys [request-ch]} ::requester-config
+                {:keys [response-id-pub]} ::requester-runtime
+                :as this}
+               request
+               & {:keys [timeout]}]
   (let [p (promise)
         req-id (get-id request)
-        sub (a/sub response-in-id-pub req-id (a/promise-chan))]
+        sub (a/sub response-id-pub req-id (a/promise-chan))]
     (a/go
-      (let [[response ch] (a/alts! [sub (a/timeout (or timeout 30000))])]
+      (let [timeout-ch    (a/timeout (or timeout 30000))
+            [response ch] (a/alts! [sub timeout-ch])]
         (deliver p (if (= ch sub)
                      (if-not (nil? response)
                        response
-                       (ex-info "response channel was closed" {:request request}))
+                       (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
                      (ex-info "timeout while waiting for response" {:request request})))
-        (a/unsub response-in-id-pub req-id sub)
+        (a/unsub response-id-pub req-id sub)
         (a/close! sub)))
-    (a/put! request-out-ch request)
+    (a/put! request-ch request)
     p))
 
-(defn respond []
-  )
 
 
-
-#_(let [req-in  (a/chan)
-      res-out (a/chan)
+#_(let [topic :topic1
       req-out (a/chan)
       res-in  (a/chan)
-      c       (-> {}
-                  (init "testcomp" req-in res-out req-out res-in :topic1 (fn [this request]
-                                                                           (println "handler: got request" request)
-                                                                           {:bar "bar"}))
-                  start)
-      req     (new-request :topic1 {:foo "foo"})]
-  (a/go-loop [req (a/<! req-out)]
-    (when-not (nil? req)
-      (println "other: got request" req)
-      (a/put! res-in (new-response req {:bar "bar"}))
-      (recur (a/<! req-out))))
+      req-in  (a/chan)
+      res-out (a/chan)
+      _       (a/pipe req-out req-in)
+      _       (a/pipe res-out res-in)
+      c1      (-> {}
+                  (init-requester "comp1" req-out res-in topic)
+                  start-requester)
+      c2      (-> {}
+                  (init-responder "comp2" req-in res-out topic
+                                  (fn [this request]
+                                    (println "c2: got request" request)
+                                    (Thread/sleep 500)
+                                    {:bar (str (:foo request) "-bar")}))
+                  start-responder)
+      req1    (new-request topic {:foo "foo1"})
+      req2    (new-request topic {:foo "foo2"})]
   (Thread/sleep 1000)
-  (-> (request c req :timeout 10000)
-      deref
-      (println "<- response"))
+  (->> (request c1 req1 :timeout 10000)
+       deref
+       (println "user response 1:"))
+  (Thread/sleep 200)
+  (->> (request c1 req2 :timeout 10000)
+       deref
+       (println "user response 2:"))
   (Thread/sleep 1000)
-  (stop c)
-  (a/close! req-in)
-  (a/close! req-out)
+  (stop-responder c2)
+  (stop-requester c1)
   (a/close! res-out)
-  (a/close! res-in))
+  (a/close! req-in)
+  (a/close! res-in)
+  (a/close! req-out))
