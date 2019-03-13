@@ -42,21 +42,20 @@
 
 
 
-(defn init [this name recv-ch emit-ch topic handler & {:keys [topic-fn]}]
+(defn init [this name recv-ch emit-ch topic handler]
   (assoc this
          ::config {:name name
                    :recv-ch recv-ch
                    :emit-ch emit-ch
                    :topic topic
-                   :topic-fn (or topic-fn ::topic)
                    :handler handler}
          ::runtime {}))
 
-(defn start [{{:keys [name recv-ch topic topic-fn handler]} ::config {:keys [recv-pipe pub sub]} ::runtime :as this}]
+(defn start [{{:keys [name recv-ch topic handler]} ::config {:keys [recv-pipe pub sub]} ::runtime :as this}]
   (if-not recv-pipe
     (let [_         (log/info "Starting event component" name)
           recv-pipe (a/pipe recv-ch (a/chan))
-          pub       (a/pub recv-pipe topic-fn)
+          pub       (a/pub recv-pipe ::topic)
           sub       (a/sub pub topic (a/chan))]
       (a/go-loop [event (a/<! sub)]
         (if-not (nil? event)
@@ -88,11 +87,12 @@
 (defn get-data [event]
   (get event ::data))
 
-(defn event
-  ([topic data]
-   {::topic topic
+(defn new-event [topic data]
+  {::topic topic
     ;;;::flow-id (rand-int Integer/MAX_VALUE)
-    ::data data}))
+   ::data data})
 
-(defn emit [{{:keys [out-ch]} ::config :as this} event]
-  (a/put! out-ch event))
+
+
+(defn emit [{{:keys [emit-ch]} ::config :as this} event]
+  (a/put! emit-ch event))
