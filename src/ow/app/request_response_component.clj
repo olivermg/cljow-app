@@ -112,7 +112,7 @@
                 :as this}
                request
                & {:keys [timeout]}]
-  (let [p         (promise)
+  (let [receipt   (promise)
         req-id    (get-id request)
         topic     (get-topic request)
         tap       (a/tap response-mult (a/chan))
@@ -122,17 +122,24 @@
     (a/go
       (let [timeout-ch    (a/timeout (or timeout 30000))
             [response ch] (a/alts! [sub timeout-ch])]
-        (deliver p (if (= ch sub)
-                     (if-not (nil? response)
-                       response
-                       (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
-                     (ex-info "timeout while waiting for response" {:request request})))
+        (deliver receipt
+                 (if (= ch sub)
+                   (if-not (nil? response)
+                     response
+                     (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
+                   (ex-info "timeout while waiting for response" {:request request})))
         (a/unsub pub sub-topic sub)
         (a/untap response-mult tap)
         (a/close! sub)
         (a/close! tap)))
     (a/put! request-ch request)
-    p))
+    receipt))
+
+(defn wait-for-response [receipt]
+  (let [response @receipt]
+    (if-not (instance? Throwable response)
+      response
+      (throw response))))
 
 
 
@@ -170,14 +177,14 @@
           req22   (new-request topic2 {:foo "foo22"})]
       (Thread/sleep 1000)
       (println "pre req1:" (Date.))
-      (doseq [v (pvalues @(request c1 req11 :timeout 10000)
-                         @(do (Thread/sleep 100) (request c1 req12 :timeout 10000)))]
+      (doseq [v (pvalues (-> (request c1 req11 :timeout 10000) wait-for-response)
+                         (-> (do (Thread/sleep 100) (request c1 req12 :timeout 10000)) wait-for-response))]
         (println "v1:" v))
       (println "post req1:" (Date.))
       (Thread/sleep 200)
       (println "\n=====\npre req2:" (Date.))
-      (doseq [v (pvalues @(request c1 req21 :timeout 10000)
-                         @(do (Thread/sleep 100) (request c1 req22 :timeout 10000)))]
+      (doseq [v (pvalues (-> (request c1 req21 :timeout 10000) wait-for-response)
+                         (-> (do (Thread/sleep 100) (request c1 req22 :timeout 10000)) wait-for-response))]
         (println "v2:" v))
       (println "post req2:" (Date.))
       (Thread/sleep 1000)
