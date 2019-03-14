@@ -76,8 +76,10 @@
                         :as this}]
   (if-not response-pipe
     (let [_               (log/info "Starting request-response requester component" name)
-          response-pipe   (a/pipe response-ch (a/chan))]
-      (assoc this ::requester-runtime {:response-pipe response-pipe}))
+          response-pipe   (a/pipe response-ch (a/chan))
+          response-mult   (a/mult response-pipe)]
+      (assoc this ::requester-runtime {:response-pipe response-pipe
+                                       :response-mult response-mult}))
     this))
 
 (defn stop-requester [{{:keys [response-pipe]} ::requester-runtime
@@ -106,14 +108,15 @@
 
 
 (defn request [{{:keys [request-ch]} ::requester-config
-                {:keys [response-pipe]} ::requester-runtime
+                {:keys [response-mult]} ::requester-runtime
                 :as this}
                request
                & {:keys [timeout]}]
   (let [p         (promise)
         req-id    (get-id request)
         topic     (get-topic request)
-        pub       (a/pub response-pipe (fn [res] [(get res ::topic) (get res ::id)]))
+        tap       (a/tap response-mult (a/chan))
+        pub       (a/pub tap (fn [res] [(get res ::topic) (get res ::id)]))
         sub-topic [topic req-id]
         sub       (a/sub pub sub-topic (a/promise-chan))]
     (a/go
@@ -125,7 +128,9 @@
                        (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
                      (ex-info "timeout while waiting for response" {:request request})))
         (a/unsub pub sub-topic sub)
-        (a/close! sub)))
+        (a/untap response-mult tap)
+        (a/close! sub)
+        (a/close! tap)))
     (a/put! request-ch request)
     p))
 
@@ -166,15 +171,15 @@
       (Thread/sleep 1000)
       (println "pre req1:" (Date.))
       (doseq [v (pvalues @(request c1 req11 :timeout 10000)
-                         @(request c1 req12 :timeout 10000))]
+                         @(do (Thread/sleep 100) (request c1 req12 :timeout 10000)))]
         (println "v1:" v))
       (println "post req1:" (Date.))
       (Thread/sleep 200)
-      #_(println "pre req2:" (Date.))
-      #_(doseq [v (pvalues @(request c1 req21 :timeout 10000)
-                         @(request c1 req22 :timeout 10000))]
+      (println "\n=====\npre req2:" (Date.))
+      (doseq [v (pvalues @(request c1 req21 :timeout 10000)
+                         @(do (Thread/sleep 100) (request c1 req22 :timeout 10000)))]
         (println "v2:" v))
-      #_(println "post req2:" (Date.))
+      (println "post req2:" (Date.))
       (Thread/sleep 1000)
       (stop-responder c3)
       (stop-responder c2)
