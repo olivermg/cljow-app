@@ -42,10 +42,15 @@
           request-sub  (a/sub request-pub topic (a/chan))]
       (a/go-loop [request (a/<! request-sub)]
         (if-not (nil? request)
-          (do (future  ;; TODO: add some error handling
-                (->> request
-                     get-data
-                     (handler this)
+          (do (future
+                (->> (try
+                       (->> request
+                            get-data
+                            (handler this))
+                       (catch Exception e
+                         e)
+                       (catch Error e
+                         e))
                      (new-response request)
                      (a/put! response-ch)))
               (recur (a/<! request-sub)))
@@ -112,31 +117,36 @@
                 :as this}
                request
                & {:keys [timeout]}]
-  (let [receipt   (promise)
-        req-id    (get-id request)
+  (let [req-id    (get-id request)
         topic     (get-topic request)
         tap       (a/tap response-mult (a/chan))
         pub       (a/pub tap (fn [res] [(get res ::topic) (get res ::id)]))
         sub-topic [topic req-id]
-        sub       (a/sub pub sub-topic (a/promise-chan))]
-    (a/go
-      (let [timeout-ch    (a/timeout (or timeout 30000))
-            [response ch] (a/alts! [sub timeout-ch])]
-        (deliver receipt
-                 (if (= ch sub)
-                   (if-not (nil? response)
-                     response
-                     (ex-info "response channel was closed" {:request request}))   ;; TODO: think about how to report errors in a nice way
-                   (ex-info "timeout while waiting for response" {:request request})))
-        (a/unsub pub sub-topic sub)
-        (a/untap response-mult tap)
-        (a/close! sub)
-        (a/close! tap)))
+        sub       (a/sub pub sub-topic (a/promise-chan))
+        receipt   (a/go
+                    (let [timeout-ch    (a/timeout (or timeout 30000))
+                          [response ch] (a/alts! [sub timeout-ch])
+                          response (if (= ch sub)
+                                     (if-not (nil? response)
+                                       response
+                                       (ex-info "response channel was closed" {:request request}))
+                                     (ex-info "timeout while waiting for response" {:request request}))]
+                      (a/unsub pub sub-topic sub)
+                      (a/untap response-mult tap)
+                      (a/close! sub)
+                      (a/close! tap)
+                      response))]
     (a/put! request-ch request)
     receipt))
 
+(defn handle-response [receipt handler]
+  (a/go (let [response (a/<! receipt)]
+          (if-not (instance? Throwable response)
+            (handler response)
+            (throw response)))))
+
 (defn wait-for-response [receipt]
-  (let [response @receipt]
+  (let [response (a/<!! receipt)]
     (if-not (instance? Throwable response)
       response
       (throw response))))
