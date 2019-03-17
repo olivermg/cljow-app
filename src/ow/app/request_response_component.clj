@@ -48,8 +48,10 @@
                             get-data
                             (handler this))
                        (catch Exception e
+                         (log/debug "Handler threw Exception" e)
                          e)
                        (catch Error e
+                         (log/debug "Handler threw Error" e)
                          e))
                      (new-response request)
                      (a/put! response-ch)))
@@ -60,8 +62,7 @@
       (assoc this ::responder-runtime {:request-pipe request-pipe}))
     this))
 
-(defn stop-responder [{{:keys [topic]} ::responder-config
-                       {:keys [request-pipe]} ::responder-runtime
+(defn stop-responder [{{:keys [request-pipe]} ::responder-runtime
                        :as this}]
   (when request-pipe
     (a/close! request-pipe))
@@ -80,16 +81,18 @@
                         {:keys [response-pipe]} ::requester-runtime
                         :as this}]
   (if-not response-pipe
-    (let [_               (log/info "Starting request-response requester component" name)
-          response-pipe   (a/pipe response-ch (a/chan))
-          response-mult   (a/mult response-pipe)]
+    (let [_             (log/info "Starting request-response requester component" name)
+          response-pipe (a/pipe response-ch (a/chan))
+          response-mult (a/mult response-pipe)]
       (assoc this ::requester-runtime {:response-pipe response-pipe
                                        :response-mult response-mult}))
     this))
 
-(defn stop-requester [{{:keys [response-pipe]} ::requester-runtime
+(defn stop-requester [{{:keys [name] ::requester-config}
+                       {:keys [response-pipe]} ::requester-runtime
                        :as this}]
   (when response-pipe
+    (log/info "Stopping request-response requester component" name)
     (a/close! response-pipe))
   (assoc this ::requester-runtime {}))
 
