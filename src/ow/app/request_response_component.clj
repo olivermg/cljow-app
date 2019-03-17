@@ -139,12 +139,6 @@
     (a/put! request-ch request)
     receipt))
 
-#_(defn handle-response [receipt handler]
-  (a/go (let [response (a/<! receipt)]
-          (if-not (instance? Throwable response)
-            (handler response)
-            (throw response)))))
-
 (defn wait-for-response [receipt]
   (let [response (a/<!! receipt)]
     (if-not (instance? Throwable response)
