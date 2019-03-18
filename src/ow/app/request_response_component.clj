@@ -88,7 +88,7 @@
                                        :response-mult response-mult}))
     this))
 
-(defn stop-requester [{{:keys [name] ::requester-config}
+(defn stop-requester [{{:keys [name]} ::requester-config
                        {:keys [response-pipe]} ::requester-runtime
                        :as this}]
   (when response-pipe
