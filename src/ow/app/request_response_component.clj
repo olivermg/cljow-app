@@ -5,6 +5,9 @@
 (defn get-id [request-or-response]
   (get request-or-response ::id))
 
+(defn get-type [request-or-response]
+  (get request-or-response ::type))
+
 (defn get-topic [request-or-response]
   (get request-or-response ::topic))
 
@@ -13,11 +16,13 @@
 
 (defn new-request [topic data]
   {::id (rand-int Integer/MAX_VALUE)
+   ::type :request
    ::topic topic
    ::data data})
 
 (defn new-response [request data]
   {::id (get-id request)
+   ::type :response
    ::topic (get-topic request)
    ::data data})
 
@@ -38,8 +43,8 @@
   (if-not request-pipe
     (let [_            (log/info "Starting request-response responder component" name)
           request-pipe (a/pipe request-ch (a/chan))
-          request-pub  (a/pub request-pipe ::topic)
-          request-sub  (a/sub request-pub topic (a/chan))]
+          request-pub  (a/pub request-pipe (fn [req] [(get-type req) (get-topic req)]))
+          request-sub  (a/sub request-pub [:request topic] (a/chan))]
       (a/go-loop [request (a/<! request-sub)]
         (if-not (nil? request)
           (do (future
@@ -123,8 +128,8 @@
   (let [req-id    (get-id request)
         topic     (get-topic request)
         tap       (a/tap response-mult (a/chan))
-        pub       (a/pub tap (fn [res] [(get res ::topic) (get res ::id)]))
-        sub-topic [topic req-id]
+        pub       (a/pub tap (fn [res] [(get-type res) (get-topic res) (get-id res)]))
+        sub-topic [:response topic req-id]
         sub       (a/sub pub sub-topic (a/promise-chan))
         receipt   (a/go
                     (let [timeout-ch    (a/timeout (or timeout 30000))
