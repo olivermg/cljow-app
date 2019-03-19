@@ -2,18 +2,6 @@
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]))
 
-(defn get-id [request-or-response]
-  (get request-or-response ::id))
-
-(defn get-type [request-or-response]
-  (get request-or-response ::type))
-
-(defn get-topic [request-or-response]
-  (get request-or-response ::topic))
-
-(defn get-data [request-or-response]
-  (get request-or-response ::data))
-
 (defn new-request [topic data]
   {::id (rand-int Integer/MAX_VALUE)
    ::type :request
@@ -123,41 +111,41 @@
 (defn request [{{:keys [request-ch]} ::requester-config
                 {:keys [response-mult]} ::requester-runtime
                 :as this}
-               request
+               topic
+               data
                & {:keys [timeout]}]
-  (let [req-id    (get-id request)
-        topic     (get-topic request)
+  (let [{:keys [::id] :as request} (new-request topic data)
         tap       (a/tap response-mult (a/chan))
-        pub       (a/pub tap (fn [res] [(get-type res) (get-topic res) (get-id res)]))
-        sub-topic [:response topic req-id]
+        pub       (a/pub tap (fn [{:keys [::id ::type ::topic]}] [type topic id]))
+        sub-topic [:response topic id]
         sub       (a/sub pub sub-topic (a/promise-chan))
         receipt   (a/go
                     (let [timeout-ch    (a/timeout (or timeout 30000))
                           [response ch] (a/alts! [sub timeout-ch])
-                          response (if (= ch sub)
-                                     (if-not (nil? response)
-                                       response
-                                       (ex-info "response channel was closed" {:request request}))
-                                     (ex-info "timeout while waiting for response" {:request request}))]
+                          response-data (if (= ch sub)
+                                          (if-not (nil? response)
+                                            (::data response)
+                                            (ex-info "response channel was closed" {:request request}))
+                                          (ex-info "timeout while waiting for response" {:request request}))]
                       (a/unsub pub sub-topic sub)
                       (a/untap response-mult tap)
                       (a/close! sub)
                       (a/close! tap)
-                      response))]
+                      response-data))]
     (a/put! request-ch request)
     receipt))
 
 (defn wait-for-response [receipt]
-  (let [response (a/<!! receipt)]
-    (if-not (instance? Throwable response)
-      response
-      (throw response))))
+  (let [response-data (a/<!! receipt)]
+    (if-not (instance? Throwable response-data)
+      response-data
+      (throw response-data))))
 
 
 
 #_(do (import [java.util Date])
-    (let [topic1 :topic1
-          topic2 :topic2
+    (let [topic1  :topic1
+          topic2  :topic2
           req-out (a/chan)
           res-in  (a/chan)
           req-in  (a/chan)
@@ -182,21 +170,17 @@
                                         (println "c3: got request:" request)
                                         (Thread/sleep 300)
                                         {:baz (str (:foo request) "-baz")}))
-                      start-responder)
-          req11   (new-request topic1 {:foo "foo11"})
-          req12   (new-request topic2 {:foo "foo12"})
-          req21   (new-request topic1 {:foo "foo21"})
-          req22   (new-request topic2 {:foo "foo22"})]
+                      start-responder)]
       (Thread/sleep 1000)
       (println "pre req1:" (Date.))
-      (doseq [v (pvalues (-> (request c1 req11 :timeout 10000) wait-for-response)
-                         (-> (do (Thread/sleep 100) (request c1 req12 :timeout 10000)) wait-for-response))]
+      (doseq [v (pvalues (-> (request c1 topic1 {:foo "foo11"} :timeout 10000) wait-for-response)
+                         (-> (do (Thread/sleep 100) (request c1 topic2 {:foo "foo12"} :timeout 10000)) wait-for-response))]
         (println "v1:" v))
       (println "post req1:" (Date.))
       (Thread/sleep 200)
       (println "\n=====\npre req2:" (Date.))
-      (doseq [v (pvalues (-> (request c1 req21 :timeout 10000) wait-for-response)
-                         (-> (do (Thread/sleep 100) (request c1 req22 :timeout 10000)) wait-for-response))]
+      (doseq [v (pvalues (-> (request c1 topic1 {:foo "foo21"} :timeout 10000) wait-for-response)
+                         (-> (do (Thread/sleep 100) (request c1 topic2 {:foo "foo22"} :timeout 10000)) wait-for-response))]
         (println "v2:" v))
       (println "post req2:" (Date.))
       (Thread/sleep 1000)
