@@ -2,12 +2,6 @@
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]))
 
-(defn get-topic [event]
-  (get event ::topic))
-
-(defn get-data [event]
-  (get event ::data))
-
 (defn new-event [topic data]
   {::topic topic
    ::data data})
@@ -54,7 +48,7 @@
           (do (future
                 (try
                   (->> event
-                       get-data
+                       ::data
                        (handler this))
                   (catch Exception e
                     (log/debug "Handler threw Exception" e)
@@ -94,8 +88,8 @@
 
 
 
-(defn emit [{{:keys [emit-ch]} ::emitter-config :as this} event]
-  (a/put! emit-ch event))
+(defn emit [{{:keys [emit-ch]} ::emitter-config :as this} topic data]
+  (a/put! emit-ch (new-event topic data)))
 
 
 
@@ -121,16 +115,13 @@
                                         (println "receiver2: got event data:" event-data)
                                         (Thread/sleep 500)
                                         (println "receiver2: done")))
-                       start-receiver)
-      ev1          (new-event topic1 {:foo "foo1"})
-      ev2          (new-event topic1 {:foo "foo2"})
-      ev3          (new-event topic2 {:bar "bar1"})]
+                       start-receiver)]
   (Thread/sleep 1000)
-  (emit e1 ev1)
+  (emit e1 topic1 {:foo "foo1"})
   (Thread/sleep 100)
-  (emit e1 ev2)
+  (emit e1 topic1 {:foo "foo2"})
   (Thread/sleep 100)
-  (emit e1 ev3)
+  (emit e1 topic2 {:bar "bar1"})
   (Thread/sleep 1000)
   (stop-receiver r2)
   (stop-receiver r1)
