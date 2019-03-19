@@ -38,7 +38,7 @@
           (do (future
                 (->> (try
                        (->> request
-                            get-data
+                            ::data
                             (handler this))
                        (catch Exception e
                          (log/debug "Handler threw Exception" e)
