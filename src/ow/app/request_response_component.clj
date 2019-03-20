@@ -9,9 +9,9 @@
    ::data data})
 
 (defn new-response [request data]
-  {::id (get-id request)
+  {::id (::id request)
    ::type :response
-   ::topic (get-topic request)
+   ::topic (::topic request)
    ::data data})
 
 
@@ -31,7 +31,7 @@
   (if-not request-pipe
     (let [_            (log/info "Starting request-response responder component" name)
           request-pipe (a/pipe request-ch (a/chan))
-          request-pub  (a/pub request-pipe (fn [req] [(get-type req) (get-topic req)]))
+          request-pub  (a/pub request-pipe (fn [req] [(::type req) (::topic req)]))
           request-sub  (a/sub request-pub [:request topic] (a/chan))]
       (a/go-loop [request (a/<! request-sub)]
         (if-not (nil? request)
