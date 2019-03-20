@@ -1,6 +1,7 @@
 (ns ow.app.event-component
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [ow.app.component :as owc]))
 
 (defn new-event [topic data]
   {::topic topic
@@ -8,38 +9,34 @@
 
 
 
-(defn init-emitter [this name emit-ch topic]
+(defn init-emitter [this emit-ch topic]
   (assoc this
-         ::emitter-config {:name name
-                           :emit-ch emit-ch
+         ::emitter-config {:emit-ch emit-ch
                            :topic topic}
          ::emitter-runtime {}))
 
-(defn start-emitter [{{:keys [name]} ::emitter-config
-                      :as this}]
-  (log/info "Starting event emitter component" name)
+(defn start-emitter [this]
+  (log/info "Starting event emitter component" (owc/get-name this))
   this)
 
-(defn stop-emitter [{{:keys [name]} ::emitter-config
-                     :as this}]
-  (log/info "Stopping event emitter component" name)
+(defn stop-emitter [this]
+  (log/info "Stopping event emitter component" (owc/get-name this))
   (assoc this ::emitter-runtime {}))
 
 
 
-(defn init-receiver [this name receive-ch topic handler]
+(defn init-receiver [this receive-ch topic handler]
   (assoc this
-         ::receiver-config {:name name
-                            :receive-ch receive-ch
+         ::receiver-config {:receive-ch receive-ch
                             :topic topic
                             :handler handler}
          ::receiver-runtime {}))
 
-(defn start-receiver [{{:keys [name receive-ch topic handler]} ::receiver-config
+(defn start-receiver [{{:keys [receive-ch topic handler]} ::receiver-config
                        {:keys [receive-pipe]} ::receiver-runtime
                        :as this}]
   (if-not receive-pipe
-    (let [_            (log/info "Starting event receiver component" name)
+    (let [_            (log/info "Starting event receiver component" (owc/get-name this))
           receive-pipe (a/pipe receive-ch (a/chan))
           receive-pub  (a/pub receive-pipe ::topic)
           receive-sub  (a/sub receive-pub topic (a/chan))]
@@ -59,7 +56,7 @@
               (recur (a/<! receive-sub)))
           (do (a/unsub receive-pub topic receive-sub)
               (a/close! receive-sub)
-              (log/info "Stopped event receiver coponent" name))))
+              (log/info "Stopped event receiver component" (owc/get-name this)))))
       (assoc this ::receiver-runtime {:receive-pipe receive-pipe}))
     this))
 
@@ -71,10 +68,10 @@
 
 
 
-(defn init [this name receive-ch emit-ch topic handler]
+(defn init [this receive-ch emit-ch topic handler]
   (-> this
-      (init-emitter name emit-ch topic)
-      (init-receiver name receive-ch topic handler)))
+      (init-emitter emit-ch topic)
+      (init-receiver receive-ch topic handler)))
 
 (defn start [this]
   (-> this
@@ -100,17 +97,20 @@
       _            (a/pipe emit-ch receive-ch)
       receive-mult (a/mult receive-ch)
       e1           (-> {}
-                       (init-emitter "emitter1" emit-ch topic1)
+                       (owc/init "emitter1")
+                       (init-emitter emit-ch topic1)
                        start-emitter)
       r1           (-> {}
-                       (init-receiver "receiver1" (a/tap receive-mult (a/chan)) topic1
+                       (owc/init "receiver1")
+                       (init-receiver (a/tap receive-mult (a/chan)) topic1
                                       (fn [this event-data]
                                         (println "receiver1: got event data:" event-data)
                                         (Thread/sleep 1000)
                                         (println "receiver1: done")))
                        start-receiver)
       r2           (-> {}
-                       (init-receiver "receiver2" (a/tap receive-mult (a/chan)) topic2
+                       (owc/init "receiver2")
+                       (init-receiver (a/tap receive-mult (a/chan)) topic2
                                       (fn [this event-data]
                                         (println "receiver2: got event data:" event-data)
                                         (Thread/sleep 500)

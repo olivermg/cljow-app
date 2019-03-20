@@ -1,6 +1,7 @@
 (ns ow.app.request-response-component
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [ow.app.component :as owc]))
 
 (defn new-request [topic data]
   {::id (rand-int Integer/MAX_VALUE)
@@ -16,20 +17,19 @@
 
 
 
-(defn init-responder [this name request-ch response-ch topic handler]
+(defn init-responder [this request-ch response-ch topic handler]
   (assoc this
-         ::responder-config {:name name
-                             :request-ch request-ch
+         ::responder-config {:request-ch request-ch
                              :response-ch response-ch
                              :topic topic
                              :handler handler}
          ::responder-runtime {}))
 
-(defn start-responder [{{:keys [name request-ch response-ch topic handler]} ::responder-config
+(defn start-responder [{{:keys [request-ch response-ch topic handler]} ::responder-config
                         {:keys [request-pipe]} ::responder-runtime
                         :as this}]
   (if-not request-pipe
-    (let [_            (log/info "Starting request-response responder component" name)
+    (let [_            (log/info "Starting request-response responder component" (owc/get-name this))
           request-pipe (a/pipe request-ch (a/chan))
           request-pub  (a/pub request-pipe (fn [req] [(::type req) (::topic req)]))
           request-sub  (a/sub request-pub [:request topic] (a/chan))]
@@ -51,7 +51,7 @@
               (recur (a/<! request-sub)))
           (do (a/unsub request-pub topic request-sub)
               (a/close! request-sub)
-              (log/info "Stopped request-response responder component" name))))
+              (log/info "Stopped request-response responder component" (owc/get-name this)))))
       (assoc this ::responder-runtime {:request-pipe request-pipe}))
     this))
 
@@ -63,38 +63,36 @@
 
 
 
-(defn init-requester [this name request-ch response-ch]
+(defn init-requester [this request-ch response-ch]
   (assoc this
-         ::requester-config {:name name
-                             :request-ch request-ch
+         ::requester-config {:request-ch request-ch
                              :response-ch response-ch}
          ::requester-runtime {}))
 
-(defn start-requester [{{:keys [name request-ch response-ch]} ::requester-config
+(defn start-requester [{{:keys [request-ch response-ch]} ::requester-config
                         {:keys [response-pipe]} ::requester-runtime
                         :as this}]
   (if-not response-pipe
-    (let [_             (log/info "Starting request-response requester component" name)
+    (let [_             (log/info "Starting request-response requester component" (owc/get-name this))
           response-pipe (a/pipe response-ch (a/chan))
           response-mult (a/mult response-pipe)]
       (assoc this ::requester-runtime {:response-pipe response-pipe
                                        :response-mult response-mult}))
     this))
 
-(defn stop-requester [{{:keys [name]} ::requester-config
-                       {:keys [response-pipe]} ::requester-runtime
+(defn stop-requester [{{:keys [response-pipe]} ::requester-runtime
                        :as this}]
   (when response-pipe
-    (log/info "Stopping request-response requester component" name)
+    (log/info "Stopping request-response requester component" (owc/get-name this))
     (a/close! response-pipe))
   (assoc this ::requester-runtime {}))
 
 
 
-(defn init [this name request-in-ch response-out-ch request-out-ch response-in-ch topic handler]
+(defn init [this request-in-ch response-out-ch request-out-ch response-in-ch topic handler]
   (-> this
-      (init-responder name request-in-ch response-out-ch topic handler)
-      (init-requester name request-out-ch response-in-ch)))
+      (init-responder request-in-ch response-out-ch topic handler)
+      (init-requester request-out-ch response-in-ch)))
 
 (defn start [this]
   (-> this
@@ -155,17 +153,20 @@
           req-in-mult (a/mult req-in)
           res-in-mult (a/mult res-in)
           c1      (-> {}
-                      (init-requester "comp1" req-out (a/tap res-in-mult (a/chan)))
+                      (owc/init "comp1")
+                      (init-requester req-out (a/tap res-in-mult (a/chan)))
                       start-requester)
           c2      (-> {}
-                      (init-responder "comp2" (a/tap req-in-mult (a/chan)) res-out topic1
+                      (owc/init "comp2")
+                      (init-responder (a/tap req-in-mult (a/chan)) res-out topic1
                                       (fn [this request]
                                         (println "c2: got request:" request)
                                         (Thread/sleep 500)
                                         {:bar (str (:foo request) "-bar")}))
                       start-responder)
           c3      (-> {}
-                      (init-responder "comp3" (a/tap req-in-mult (a/chan)) res-out topic2
+                      (owc/init "comp3")
+                      (init-responder (a/tap req-in-mult (a/chan)) res-out topic2
                                       (fn [this request]
                                         (println "c3: got request:" request)
                                         (Thread/sleep 300)
