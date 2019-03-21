@@ -17,22 +17,25 @@
 
 
 
-(defn init-responder [this request-ch response-ch topic handler]
+(defn init-responder [this request-ch response-ch topic handler & {:keys [data-topic-fn data-topic]}]
   (assoc this
          ::responder-config {:request-ch request-ch
                              :response-ch response-ch
                              :topic topic
-                             :handler handler}
+                             :handler handler
+                             :data-topic-fn (or data-topic-fn (constantly nil))
+                             :data-topic data-topic}
          ::responder-runtime {}))
 
-(defn start-responder [{{:keys [request-ch response-ch topic handler]} ::responder-config
+(defn start-responder [{{:keys [request-ch response-ch topic handler data-topic-fn data-topic]} ::responder-config
                         {:keys [request-pipe]} ::responder-runtime
                         :as this}]
   (if-not request-pipe
     (let [_            (log/info "Starting request-response responder component" (owc/get-name this))
           request-pipe (a/pipe request-ch (a/chan))
-          request-pub  (a/pub request-pipe (fn [req] [(::type req) (::topic req)]))
-          request-sub  (a/sub request-pub [:request topic] (a/chan))]
+          request-pub  (a/pub request-pipe (fn [req] [(::type req) (::topic req) (data-topic-fn this (::data req))]))
+          sub-topic    [:request topic data-topic]
+          request-sub  (a/sub request-pub sub-topic (a/chan))]
       (a/go-loop [request (a/<! request-sub)]
         (if-not (nil? request)
           (do (future
@@ -49,7 +52,7 @@
                      (new-response request)
                      (a/put! response-ch)))
               (recur (a/<! request-sub)))
-          (do (a/unsub request-pub topic request-sub)
+          (do (a/unsub request-pub sub-topic request-sub)
               (a/close! request-sub)
               (log/info "Stopped request-response responder component" (owc/get-name this)))))
       (assoc this ::responder-runtime {:request-pipe request-pipe}))
@@ -159,28 +162,31 @@
           c2      (-> {}
                       (owc/init "comp2")
                       (init-responder (a/tap req-in-mult (a/chan)) res-out topic1
-                                      (fn [this request]
-                                        (println "c2: got request:" request)
+                                      (fn [this request-data]
+                                        (println "c2: got request-data:" request)
                                         (Thread/sleep 500)
-                                        {:bar (str (:foo request) "-bar")}))
+                                        {:bar (str (:foo request) "-bar")})
+                                      :data-topic-fn (fn [this request-data]
+                                                       (:email request-data))
+                                      :data-topic "foo@bar.com")
                       start-responder)
           c3      (-> {}
                       (owc/init "comp3")
                       (init-responder (a/tap req-in-mult (a/chan)) res-out topic2
-                                      (fn [this request]
-                                        (println "c3: got request:" request)
+                                      (fn [this request-data]
+                                        (println "c3: got request-data:" request-data)
                                         (Thread/sleep 300)
                                         {:baz (str (:foo request) "-baz")}))
                       start-responder)]
       (Thread/sleep 1000)
       (println "pre req1:" (Date.))
-      (doseq [v (pvalues (-> (request c1 topic1 {:foo "foo11"} :timeout 10000) wait-for-response)
+      (doseq [v (pvalues (->                        (request c1 topic1 {:foo "foo11" :email "foo@bar.com"} :timeout 10000) wait-for-response)
                          (-> (do (Thread/sleep 100) (request c1 topic2 {:foo "foo12"} :timeout 10000)) wait-for-response))]
         (println "v1:" v))
       (println "post req1:" (Date.))
       (Thread/sleep 200)
       (println "\n=====\npre req2:" (Date.))
-      (doseq [v (pvalues (-> (request c1 topic1 {:foo "foo21"} :timeout 10000) wait-for-response)
+      (doseq [v (pvalues (->                        (request c1 topic1 {:foo "foo21" :email "foo@bar.com"} :timeout 10000) wait-for-response)
                          (-> (do (Thread/sleep 100) (request c1 topic2 {:foo "foo22"} :timeout 10000)) wait-for-response))]
         (println "v2:" v))
       (println "post req2:" (Date.))
