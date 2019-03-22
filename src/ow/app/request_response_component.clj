@@ -39,18 +39,18 @@
       (a/go-loop [request (a/<! request-sub)]
         (if-not (nil? request)
           (do (future
-                (->> (try
-                       (->> request
-                            ::data
-                            (handler this))
-                       (catch Exception e
-                         (log/debug "Handler threw Exception" e)
-                         e)
-                       (catch Error e
-                         (log/debug "Handler threw Error" e)
-                         e))
-                     (new-response request)
-                     (a/put! response-ch)))
+                (let [result (try
+                               (->> request
+                                    ::data
+                                    (handler this))
+                               (catch Exception e
+                                 (log/debug "Handler threw Exception" e)
+                                 e)
+                               (catch Error e
+                                 (log/debug "Handler threw Error" e)
+                                 e))
+                      response (new-response request result)]
+                  (a/put! response-ch response)))
               (recur (a/<! request-sub)))
           (do (a/unsub request-pub sub-topic request-sub)
               (a/close! request-sub)
