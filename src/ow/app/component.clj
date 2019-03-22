@@ -7,3 +7,9 @@
 
 (defn init [this name]
   (assoc this ::config {:name name}))
+
+(defn start [this]
+  this)
+
+(defn stop [this]
+  this)
