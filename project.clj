@@ -12,7 +12,7 @@
                  [digest "1.4.8"]
                  [integrant "0.7.0"]
                  [org.apache.kafka/kafka-clients "2.1.1" :exclusions [org.slf4j/slf4j-api]]
-                 [org.apache.kafka/kafka-streams "2.1.1"]
+                 [org.apache.kafka/kafka-streams "2.1.1" :exclusions [org.slf4j/slf4j-api]]
                  [org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.logging "0.4.1"]
                  [spootnik/signal "0.2.2"]
