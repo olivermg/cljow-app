@@ -1,3 +1,7 @@
+# lifecycle
+- can we use defmulti for this?
+- hardwire it to async components? i.e. should "start" run a go-loop?
+
 # async components
 - mandatorily use mults for incoming channels.
 - are topics necessary? we could instead rely on proper core.async infrastrucure externally. i.e.
