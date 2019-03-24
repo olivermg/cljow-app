@@ -13,3 +13,6 @@
 (defmethod owl/stop :emitter [this]
   (println "emitter stop")
   this)
+
+(defn emit [{:keys [ch] :as this} data]
+  (a/put! ch data))
