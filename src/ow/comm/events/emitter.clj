@@ -4,15 +4,7 @@
             [ow.lifecycle :as owl]))
 
 (defn construct [ch]
-  (owl/construct :emitter {:ch ch}))
-
-(defmethod owl/start :emitter [this]
-  (println "emitter start")
-  this)
-
-(defmethod owl/stop :emitter [this]
-  (println "emitter stop")
-  this)
+  (owl/construct ::emitter {:ch ch}))
 
 (defn emit [{:keys [ch] :as this} data]
   (a/put! ch data))
