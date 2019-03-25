@@ -6,3 +6,6 @@
 
 (defmulti start (fn [{:keys [::type] :as this} & args] type))
 (defmulti stop (fn [{:keys [::type] :as this} & args] type))
+
+(defmethod start :default [this] this)
+(defmethod stop :default [this] this)
