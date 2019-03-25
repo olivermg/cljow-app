@@ -4,35 +4,37 @@
             [ow.lifecycle :as owl]))
 
 (defn construct [in-ch handler]
-  (owl/construct ::comm {:in-ch in-ch
-                         :handler handler}))
+  (owl/construct ::comm {::in-ch in-ch
+                         ::handler handler}))
 
-(defmethod owl/start ::comm [{:keys [in-ch handler] :as this}]
-  (let [pipe (a/pipe in-ch (a/chan))]
-    (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! pipe)]
-      (if-not (nil? request-map)
-        (do (future
-              (let [response (try
-                               (handler this request)
-                               (catch Exception e
-                                 (log/debug "Handler threw Exception" e)
-                                 e)
-                               (catch Error e
-                                 (log/debug "Handler threw Error" e)
-                                 e))]
-                (cond
-                  response-ch                    (a/put! response-ch response)
-                  (instance? Throwable response) (throw response)
-                  true                           response)))
-            (recur (a/<! pipe)))
-        (log/info "Stopped comm" (owl/get-type this))))
-    (log/info "Started comm" (owl/get-type this))
-    (assoc this :pipe pipe)))
+(defmethod owl/start ::comm [{:keys [::in-ch ::handler ::pipe] :as this}]
+  (if-not pipe
+    (let [pipe (a/pipe in-ch (a/chan))]
+      (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! pipe)]
+        (if-not (nil? request-map)
+          (do (future
+                (let [response (try
+                                 (handler this request)
+                                 (catch Exception e
+                                   (log/debug "Handler threw Exception" e)
+                                   e)
+                                 (catch Error e
+                                   (log/debug "Handler threw Error" e)
+                                   e))]
+                  (cond
+                    response-ch                    (a/put! response-ch response)
+                    (instance? Throwable response) (throw response)
+                    true                           response)))
+              (recur (a/<! pipe)))
+          (log/info "Stopped comm" (owl/get-type this))))
+      (log/info "Started comm" (owl/get-type this))
+      (assoc this ::pipe pipe))
+    this))
 
-(defmethod owl/stop ::comm [{:keys [pipe] :as this}]
+(defmethod owl/stop ::comm [{:keys [::pipe] :as this}]
   (when pipe
     (a/close! pipe))
-  (assoc this :pipe nil))
+  (assoc this ::pipe nil))
 
 (defn emit [out-ch request]
   (a/put! out-ch {:request request}))
