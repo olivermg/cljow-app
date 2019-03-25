@@ -4,6 +4,9 @@
 (defn construct [type data]
   (assoc data ::type type))
 
+(defn get-type [{:keys [::type] :as this}]
+  type)
+
 (defmulti start (fn [{:keys [::type] :as this} & args] type))
 (defmulti stop (fn [{:keys [::type] :as this} & args] type))
 
