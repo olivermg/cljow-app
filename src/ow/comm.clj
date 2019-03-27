@@ -40,7 +40,6 @@
   (a/put! out-ch {:request request}))
 
 (defn request [out-ch request & {:keys [timeout]}]
-  (println "REQ" request)
   (let [response-ch (a/promise-chan)
         request-map {:request     request
                      :response-ch response-ch}
