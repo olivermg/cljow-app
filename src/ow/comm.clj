@@ -36,12 +36,14 @@
     (a/close! pipe))
   (assoc this ::pipe nil))
 
-(defn emit [out-ch request]
-  (a/put! out-ch {:request request}))
+(defn emit [out-ch request & {:keys [topic]}]
+  (a/put! out-ch {:topic   topic
+                  :request request}))
 
-(defn request [out-ch request & {:keys [timeout]}]
+(defn request [out-ch request & {:keys [topic timeout]}]
   (let [response-ch (a/promise-chan)
-        request-map {:request     request
+        request-map {:topic       topic
+                     :request     request
                      :response-ch response-ch}
         receipt     (a/go
                       (let [timeout-ch    (a/timeout (or timeout 30000))
@@ -56,6 +58,8 @@
       (if-not (instance? Throwable response)
         response
         (throw response)))))
+
+(def topic-fn :topic)
 
 
 
