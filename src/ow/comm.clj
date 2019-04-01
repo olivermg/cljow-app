@@ -3,9 +3,9 @@
             [clojure.tools.logging :as log]
             [ow.lifecycle :as owl]))
 
-(defn construct [in-ch handler]
-  (owl/construct ::comm {::in-ch in-ch
-                         ::handler handler}))
+(defn construct [name in-ch handler]
+  (owl/construct ::comm name {::in-ch in-ch
+                              ::handler handler}))
 
 (defmethod owl/start* ::comm [{:keys [::in-ch ::handler ::pipe] :as this}]
   (if-not pipe
@@ -25,9 +25,7 @@
                     response-ch                    (a/put! response-ch response)
                     (instance? Throwable response) (throw response)
                     true                           response)))
-              (recur (a/<! pipe)))
-          (log/info "Stopped comm" (owl/get-type this))))
-      (log/info "Started comm" (owl/get-type this))
+              (recur (a/<! pipe)))))
       (assoc this ::pipe pipe))
     this))
 
