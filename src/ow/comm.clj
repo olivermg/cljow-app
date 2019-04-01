@@ -7,7 +7,7 @@
   (owl/construct ::comm {::in-ch in-ch
                          ::handler handler}))
 
-(defmethod owl/start ::comm [{:keys [::in-ch ::handler ::pipe] :as this}]
+(defmethod owl/start* ::comm [{:keys [::in-ch ::handler ::pipe] :as this}]
   (if-not pipe
     (let [pipe (a/pipe in-ch (a/chan))]
       (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! pipe)]
@@ -31,7 +31,7 @@
       (assoc this ::pipe pipe))
     this))
 
-(defmethod owl/stop ::comm [{:keys [::pipe] :as this}]
+(defmethod owl/stop* ::comm [{:keys [::pipe] :as this}]
   (when pipe
     (a/close! pipe))
   (assoc this ::pipe nil))
