@@ -18,5 +18,4 @@
                  [spootnik/signal "0.2.2"]
                  [trptcolin/versioneer "0.2.0"]]
 
-  :profiles {:dev {:dependencies [[org.apache.logging.log4j/log4j-core "2.11.2"]
-                                  [org.slf4j/slf4j-log4j12 "1.7.26"]]}})
+  :profiles {:dev {:dependencies [[org.apache.logging.log4j/log4j-core "2.11.2"]]}})
