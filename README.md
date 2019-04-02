@@ -1,5 +1,7 @@
 # cljow-app
 
+[![Clojars Project](https://img.shields.io/clojars/v/cljow-app.svg)](https://clojars.org/cljow-app)
+
 A Clojure library designed to ... well, that part is up to you.
 
 ## Usage
