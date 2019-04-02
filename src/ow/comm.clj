@@ -11,6 +11,7 @@
   (if-not pipe
     (let [pipe (a/pipe in-ch (a/chan))]
       (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! pipe)]
+        (log/trace "received request-map:" (select-keys request-map #{:id :flowid :topic}))
         (if-not (nil? request-map)
           (do (future
                 (let [response (try
@@ -34,13 +35,19 @@
     (a/close! pipe))
   (assoc this ::pipe nil))
 
-(defn emit [out-ch request & {:keys [topic]}]
-  (a/put! out-ch {:topic   topic
-                  :request request}))
+(defn emit [out-ch request & {:keys [topic parent-event]}]
+  (let [event-map {:id      (rand-int Integer/MAX_VALUE)
+                   :flowid  (get parent-event :flowid (rand-int Integer/MAX_VALUE))
+                   :topic   topic
+                   :request request}]
+    (log/trace "emitting event-map:" (select-keys event-map #{:id :flowid :topic}))
+    (a/put! out-ch event-map)))
 
-(defn request [out-ch request & {:keys [topic timeout]}]
+(defn request [out-ch request & {:keys [topic timeout parent-request]}]
   (let [response-ch (a/promise-chan)
-        request-map {:topic       topic
+        request-map {:id          (rand-int Integer/MAX_VALUE)
+                     :flowid      (get parent-request :flowid (rand-int Integer/MAX_VALUE))
+                     :topic       topic
                      :request     request
                      :response-ch response-ch}
         receipt     (a/go
@@ -51,6 +58,7 @@
                             response
                             (ex-info "response channel was closed" {:request request}))
                           (ex-info "timeout while waiting for response" {:request request}))))]
+    (log/trace "requesting request-map:" (select-keys request-map #{:id :flowid :topic}))
     (a/put! out-ch request-map)
     (let [response (a/<!! receipt)]
       (if-not (instance? Throwable response)
