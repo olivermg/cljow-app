@@ -16,6 +16,7 @@
                  [org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.logging "0.4.1"]
                  [spootnik/signal "0.2.2"]
-                 [trptcolin/versioneer "0.2.0"]]
+                 [trptcolin/versioneer "0.2.0"]
+                 [ubergraph "0.5.2"]]
 
   :profiles {:dev {:dependencies [[org.apache.logging.log4j/log4j-core "2.11.2"]]}})
