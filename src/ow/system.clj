@@ -65,7 +65,7 @@
   (defn start-system [{:keys [start-order] :as system}]
     (-> system
         (start-or-stop-components start-order :start)
-        (inject-dependencies)))
+        (inject-dependencies)))  ;; FIXME: need to inject dependencies immediately, as components might need their deps on startup
 
   (defn stop-system [{:keys [start-order] :as system}]
     (-> system
