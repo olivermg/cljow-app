@@ -13,8 +13,10 @@
                               (apply ug/add-edges graph))))
                      (ug/digraph)
                      components)]
+
     (when-not (-> dags uga/connect uga/dag?)
       (throw (ex-info "circular dependencies detected" {:dependency-graph (with-out-str (ug/pprint dags))})))
+
     (let [start-order        (-> dags uga/connect uga/post-traverse)
           missing-components (set/difference (set (ug/nodes dags))
                                              (set start-order))

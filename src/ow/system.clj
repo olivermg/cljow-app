@@ -4,29 +4,6 @@
             #_[ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
-;;; example for components:
-#_{:component1 {:request-listener {:topic :foo1
-                                 :handler (fn [this request]
-                                            (log/debug "component1 handler received request:" request)
-                                            {:foo "bar1"})}}
-
- :component2 {:request-listener {:topic :foo2
-                                 :handler (fn [this request]
-                                            (log/debug "component2 handler received request:" request)
-                                            {:foo "bar2"})}
-              :config       {:port 8080}
-              :dependencies #{:component3}}
-
- :component3 {:request-listener {:topic :foo3
-                                 :handler (fn [this request]
-                                            (log/debug "component3 handler received request:" request)
-                                            {:foo "bar3"})}
-              :lifecycles [{:start     (fn [this]
-                                         (assoc this :moo 123))
-                            :stop      (fn [this]
-                                         (assoc this :moo nil))}]
-              :config {:port 1234}}}
-
 (defn init-system [components]
   (letfn [(update-components [system f]
             (update system :components
@@ -53,20 +30,24 @@
            init-system-fn
            init-components-fn))))
 
-(defn start-system [{:keys [start-order] :as system}]
-  (letfn [(start-component [{:keys [lifecycles] :as component}]
-            (reduce (fn [component {:keys [start] :as lifecycle}]
-                      (start component))
-                    component
-                    lifecycles))
+(letfn [(start-or-stop-component [{:keys [lifecycles] :as component} fn-kw]
+          (reduce (fn [component lifecycle]
+                    (let [f (get lifecycle fn-kw identity)]
+                      (f component)))
+                  component
+                  lifecycles))
 
-          (start-components [ordered-component-names]
-            (reduce (fn [system component-name]
-                      (update-in system [:components component-name] start-component))
-                    system
-                    ordered-component-names))]
+        (start-or-stop-components [system ordered-component-names fn-kw]
+          (reduce (fn [system component-name]
+                    (update-in system [:components component-name] start-or-stop-component fn-kw))
+                  system
+                  ordered-component-names))]
 
-    (start-components start-order)))
+  (defn start-system [{:keys [start-order] :as system}]
+    (start-or-stop-components system start-order :start))
+
+  (defn stop-system [{:keys [start-order] :as system}]
+    (start-or-stop-components system (reverse start-order) :stop)))
 
 
 
@@ -118,4 +99,5 @@
   (-> components
       init-system
       start-system
+      stop-system
       clojure.pprint/pprint))
