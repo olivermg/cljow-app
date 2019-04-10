@@ -1,7 +1,7 @@
 (ns ow.system
   (:require [clojure.tools.logging :as log]
             [ow.system.dependencies :as sd]
-            [ow.system.lifecycles :as sl]
+            #_[ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
 ;;; example for components:
@@ -53,16 +53,69 @@
            init-system-fn
            init-components-fn))))
 
+(defn start-system [{:keys [start-order] :as system}]
+  (letfn [(start-component [{:keys [lifecycles] :as component}]
+            (reduce (fn [component {:keys [start] :as lifecycle}]
+                      (start component))
+                    component
+                    lifecycles))
+
+          (start-components [ordered-component-names]
+            (reduce (fn [system component-name]
+                      (update-in system [:components component-name] start-component))
+                    system
+                    ordered-component-names))]
+
+    (start-components start-order)))
 
 
-#_(let [components {:c1 {:lifecycles [{:start (fn [this]
+
+(let [components {:c1 {:lifecycles [{:start (fn [this]
                                               (println "START C1")
                                               this)
                                      :stop   (fn [this]
                                                (println "STOP C1")
-                                               this)}]}
-                  :c2 {:dependencies #{:c1}}
+                                               this)}]
+                       :config {:foo (System/getenv "FOO")}}
+
+                  :c2 {:lifecycles [{:start (fn [this]
+                                              (println "START C2")
+                                              this)
+                                     :stop (fn [this]
+                                             (println "STOP C2")
+                                             this)}]
+                       :config {:bar (System/getenv "BAR")}
+                       :dependencies #{:c1}}
+
                   :c3 {:request-listener {:topic :foo1
                                           :handler (fn [this request]
-                                                     (println "RECEIVED REQUEST" request))}}}]
-  (-> (init-system components)))
+                                                     (println "RECEIVED REQUEST C3" request))}
+                       :lifecycles [{:start (fn [this]
+                                              (println "START C3")
+                                              this)
+                                     :stop (fn [this]
+                                             (println "STOP C3")
+                                             this)}]
+                       :dependencies #{:c4}}
+
+                  :c4 {:request-listener {:topic :foo2
+                                          :handler (fn [this request]
+                                                     (println "RECEIVED REQUEST C4" request))}
+                       :lifecycles [{:start (fn [this]
+                                              (println "START C4")
+                                              this)
+                                     :stop (fn [this]
+                                             (println "STOP C4")
+                                             this)}]}
+
+                  :c5 {:lifecycles [{:start (fn [this]
+                                              (println "START C5")
+                                              this)
+                                     :stop (fn [this]
+                                             (println "STOP C5")
+                                             this)}]}}]
+
+  (-> components
+      init-system
+      start-system
+      clojure.pprint/pprint))

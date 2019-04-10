@@ -15,13 +15,8 @@
                      components)]
     (when-not (-> dags uga/connect uga/dag?)
       (throw (ex-info "circular dependencies detected" {:dependency-graph (with-out-str (ug/pprint dags))})))
-    (let [dags-count         (count (uga/connected-components dags))
-          roots              (take dags-count (uga/topsort dags))
-          start-orders       (->> roots
-                                  (map #(uga/post-traverse dags %))
-                                  (into #{}))
-          missing-components (->> (set/difference (set (ug/nodes dags))
-                                                  (set (apply concat start-orders)))
-                                  (map vector))
-          start-orders       (apply conj start-orders missing-components)]
-      (assoc system :start-orders start-orders))))
+    (let [start-order        (-> dags uga/connect uga/post-traverse)
+          missing-components (set/difference (set (ug/nodes dags))
+                                             (set start-order))
+          start-order        (apply conj start-order missing-components)]
+      (assoc system :start-order start-order))))

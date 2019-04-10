@@ -2,7 +2,7 @@
   (:require [clojure.tools.logging :as log]
             [ow.system :as ows]))
 
-(defn init-component [{:keys [lifecycles] :as definition}]
+#_(defn init-component [{:keys [lifecycles] :as definition}]
   (letfn [(init-lifecycle [{:keys [start stop] :as lifecycles}]
             )]
 
