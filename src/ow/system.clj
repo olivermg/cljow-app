@@ -52,3 +52,17 @@
       (->> {:components components}
            init-system-fn
            init-components-fn))))
+
+
+
+#_(let [components {:c1 {:lifecycles [{:start (fn [this]
+                                              (println "START C1")
+                                              this)
+                                     :stop   (fn [this]
+                                               (println "STOP C1")
+                                               this)}]}
+                  :c2 {:dependencies #{:c1}}
+                  :c3 {:request-listener {:topic :foo1
+                                          :handler (fn [this request]
+                                                     (println "RECEIVED REQUEST" request))}}}]
+  (-> (init-system components)))
