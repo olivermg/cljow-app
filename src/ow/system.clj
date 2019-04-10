@@ -51,7 +51,7 @@
 
 
 
-(let [components {:c1 {:lifecycles [{:start (fn [this]
+#_(let [components {:c1 {:lifecycles [{:start (fn [this]
                                               (println "START C1")
                                               this)
                                      :stop   (fn [this]
