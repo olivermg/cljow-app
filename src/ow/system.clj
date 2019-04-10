@@ -33,7 +33,8 @@
 (letfn [(start-or-stop-component [{:keys [lifecycles] :as component} fn-kw]
           (reduce (fn [component lifecycle]
                     (let [f (get lifecycle fn-kw identity)]
-                      (f component)))
+                      (-> (f component)
+                          (assoc ::started? (= fn-kw :start)))))
                   component
                   lifecycles))
 
@@ -41,13 +42,35 @@
           (reduce (fn [system component-name]
                     (update-in system [:components component-name] start-or-stop-component fn-kw))
                   system
-                  ordered-component-names))]
+                  ordered-component-names))
+
+        (inject-dependencies [{:keys [components] :as system}]
+          (reduce (fn [system [name component]]
+                    (update-in system [:components name :dependencies]
+                               #(->> (map (fn [depcn]
+                                            [depcn (get-in system [:components depcn])])
+                                          %)
+                                     (into {}))))
+                  system components))
+
+        (deject-dependencies [{:keys [components] :as system}]
+          (reduce (fn [system [name component]]
+                    (update-in system [:components name :dependencies]
+                               #(-> (map (fn [[depcn depc]]
+                                           depcn)
+                                         %)
+                                    set)))
+                  system components))]
 
   (defn start-system [{:keys [start-order] :as system}]
-    (start-or-stop-components system start-order :start))
+    (-> system
+        (start-or-stop-components start-order :start)
+        (inject-dependencies)))
 
   (defn stop-system [{:keys [start-order] :as system}]
-    (start-or-stop-components system (reverse start-order) :stop)))
+    (-> system
+        (deject-dependencies)
+        (start-or-stop-components (reverse start-order) :stop))))
 
 
 
@@ -61,6 +84,7 @@
 
                   :c2 {:lifecycles [{:start (fn [this]
                                               (println "START C2")
+                                              (println "  C2 DEPENDS ON C1:" )
                                               this)
                                      :stop (fn [this]
                                              (println "STOP C2")
