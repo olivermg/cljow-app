@@ -1,10 +1,11 @@
 (ns ow.system
   (:require [clojure.tools.logging :as log]
             [ow.system.dependencies :as sd]
-            [ow.system.lifecycle :as sl]))
+            [ow.system.lifecycles :as sl]
+            [ow.system.request-listener :as srl]))
 
-;;; example for definition:
-{:component1 {:request-listener {:topic :foo1
+;;; example for components:
+#_{:component1 {:request-listener {:topic :foo1
                                  :handler (fn [this request]
                                             (log/debug "component1 handler received request:" request)
                                             {:foo "bar1"})}}
@@ -26,38 +27,28 @@
                                          (assoc this :moo nil))}]
               :config {:port 1234}}}
 
-(defmulti init-component (fn [[component-name component-definition] system] component-name))
+(defn init-system [components]
+  (letfn [(update-components [system f]
+            (update system :components
+                    #(->> (map (fn [[name component]]
+                                 [name (f name component)])
+                               %)
+                          (into {}))))
 
-(defmethod init :handler [[_ v] m]
-  v)
+          (init-system-component-names [system]
+            (update-components system (fn [name component]
+                                        (assoc component :name name))))]
 
-(defmethod init :config [[_ v] m]
-  v)
+    (let [init-system-fn     (comp srl/init-system
+                                   sd/init-system
+                                   init-system-component-names)
+          init-components-fn (fn [system]
+                               (let [init-fn (fn [name component]
+                                               ((comp #_sl/init-component
+                                                      srl/init-component)
+                                                component))]
+                                 (update-components system init-fn)))]
 
-#_(defmethod init :dependencies [[_ v] m]
-  v)
-
-(defmethod init :construct [[_ v] m]
-  (or v (fn [config]
-          {})))
-
-#_(defmethod init :start [[_ v] m]
-  (or v identity))
-
-#_(defmethod init :stop [[_ v] m]
-    (or v identity))
-
-(defn init-system [definition]
-  (let [init (comp )])
-  (letfn [(normalize [definition]
-            (let [definition (if (fn? definition)
-                               {:handler definition})]
-              (-> definition
-                  (update :handler      #(or % identity))
-                  (update :config       #(or % {}))
-                  (update :dependencies #(or % #{}))
-                  (update :construct    #(or % (fn [config]
-                                                 {})))
-                  (update :start        #(or % identity))
-                  (update :stop         #(or % identity)))))]))
-
+      (->> {:components components}
+           init-system-fn
+           init-components-fn))))

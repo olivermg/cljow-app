@@ -19,11 +19,10 @@
     (reduce (fn [system [name {:keys [request-listener] :as this}]]
               (if request-listener
                 (-> system
-                    (update-in [name :request-listener :in-mult] #(or % in-mult))
-                    (update-in [name :request-listener :out-ch] #(or % out-ch)))
+                    (update-in [:components name :request-listener :in-mult] #(or % in-mult))
+                    (update-in [:components name :request-listener :out-ch] #(or % out-ch)))
                 system))
-            system
-            system)))
+            system (:components system))))
 
 (defn init-component [{:keys [request-listener] :as this}]
   (if request-listener

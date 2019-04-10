@@ -5,14 +5,14 @@
             [ubergraph.core :as ug]
             [ubergraph.alg :as uga]))
 
-(defn init [{:keys [definition] :as system}]
-  (let [dags (reduce (fn [graph [component-name {:keys [dependencies] :as component-definition}]]
+(defn init-system [{:keys [components] :as system}]
+  (let [dags (reduce (fn [graph [component-name {:keys [dependencies] :as component}]]
                        (let [graph (ug/add-nodes graph component-name)]
                          (->> dependencies
                               (map (fn [d] [component-name d]))
                               (apply ug/add-edges graph))))
                      (ug/digraph)
-                     definition)]
+                     components)]
     (when-not (-> dags uga/connect uga/dag?)
       (throw (ex-info "circular dependencies detected" {:dependency-graph (with-out-str (ug/pprint dags))})))
     (let [dags-count         (count (uga/connected-components dags))
