@@ -115,7 +115,7 @@
 
                   :c2 {:lifecycles [{:start (fn [this]
                                               (println "START C2")
-                                              (println "  C2 DEPENDS ON C1:" )
+                                              (println "  C2 DEPENDS ON C1:" (some-> this :dependencies :c1 :name))
                                               this)
                                      :stop (fn [this]
                                              (println "STOP C2")
@@ -128,6 +128,7 @@
                                                      (println "RECEIVED REQUEST C3" request))}
                        :lifecycles [{:start (fn [this]
                                               (println "START C3")
+                                              (println "  C3 DEPENDS ON C4:" (some-> this :dependencies :c4 :name))
                                               this)
                                      :stop (fn [this]
                                              (println "STOP C3")
