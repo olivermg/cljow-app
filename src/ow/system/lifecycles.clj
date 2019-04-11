@@ -1,14 +1,15 @@
 (ns ow.system.lifecycles
   (:require [clojure.tools.logging :as log]))
 
-(letfn [(start-or-stop-component [{:keys [lifecycles ::prev-lifecycle-op] :as component} op-kw]
+(letfn [(start-or-stop-component [{:keys [lifecycles ::prev-lifecycle-op name] :as component} op-kw]
           (if-not (= op-kw prev-lifecycle-op)
-            (reduce (fn [component lifecycle]
-                      (let [f (get lifecycle op-kw identity)]
-                        (-> (f component)
-                            (assoc ::prev-lifecycle-op op-kw))))
-                    component
-                    lifecycles)
+            (do (log/info (str "Component " name ": " (clojure.core/name op-kw)))
+                (reduce (fn [component lifecycle]
+                          (let [f (get lifecycle op-kw identity)]
+                            (-> (f component)
+                                (assoc ::prev-lifecycle-op op-kw))))
+                        component
+                        lifecycles))
             component))]
 
   (defn make-start-or-stop-xf [op-kw]

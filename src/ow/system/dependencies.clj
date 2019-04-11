@@ -23,20 +23,22 @@
       (assoc system :start-order start-order))))
 
 
-(letfn [(inject-dependencies [system {:keys [::prev-dependency-op] :as component}]
+(letfn [(inject-dependencies [system {:keys [::prev-dependency-op name] :as component}]
           (if-not (= prev-dependency-op :inject)
             (-> (update component :dependencies
                         #(->> (map (fn [depcn]
+                                     (log/debug (str "Injecting into " name ": " depcn))
                                      [depcn (get-in system [:components depcn])])
                                    %)
                               (into {})))
                 (assoc ::prev-dependency-op :inject))
             component))
 
-        (deject-dependencies [_ {:keys [::prev-dependency-op] :as component}]
+        (deject-dependencies [_ {:keys [::prev-dependency-op name] :as component}]
           (if-not (= prev-dependency-op :deject)
             (-> (update component :dependencies
                         #(-> (map (fn [[depcn _]]
+                                    (log/debug (str "Dejecting from " name ": " depcn))
                                     depcn)
                                   %)
                              set))
