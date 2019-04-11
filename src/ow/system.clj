@@ -30,47 +30,78 @@
            init-system-fn
            init-components-fn))))
 
-(letfn [(start-or-stop-component [{:keys [lifecycles] :as component} fn-kw]
-          (reduce (fn [component lifecycle]
-                    (let [f (get lifecycle fn-kw identity)]
-                      (-> (f component)
-                          (assoc ::started? (= fn-kw :start)))))
-                  component
-                  lifecycles))
+(letfn [(start-or-stop-component [{:keys [lifecycles] :as component} op-kw]
+          (let [started? (= op-kw :start)]
+            (reduce (fn [component lifecycle]
+                      (let [f (get lifecycle op-kw identity)]
+                        (-> (f component)
+                            (assoc ::started? started?))))
+                    component
+                    lifecycles)))
 
-        (start-or-stop-components [system ordered-component-names fn-kw]
-          (reduce (fn [system component-name]
-                    (update-in system [:components component-name] start-or-stop-component fn-kw))
-                  system
-                  ordered-component-names))
+        (inject-dependencies [system component]
+          (update component :dependencies
+                  #(->> (map (fn [depcn]
+                               [depcn (get-in system [:components depcn])])
+                             %)
+                        (into {}))))
 
-        (inject-dependencies [{:keys [components] :as system}]
-          (reduce (fn [system [name component]]
-                    (update-in system [:components name :dependencies]
-                               #(->> (map (fn [depcn]
-                                            [depcn (get-in system [:components depcn])])
-                                          %)
-                                     (into {}))))
-                  system components))
+        (deject-dependencies [_ component]
+          (update component :dependencies
+                  #(-> (map (fn [[depcn _]]
+                              depcn)
+                            %)
+                       set)))
 
-        (deject-dependencies [{:keys [components] :as system}]
-          (reduce (fn [system [name component]]
-                    (update-in system [:components name :dependencies]
-                               #(-> (map (fn [[depcn depc]]
-                                           depcn)
-                                         %)
-                                    set)))
-                  system components))]
+        (lookup-component-xf [xf]
+          (fn
+            ([]
+             (xf))
+            ([system]
+             (xf system))
+            ([system component-name]
+             (xf system (get-in system [:components component-name])))))
+
+        (make-inject-or-deject-dependencies-xf [op-kw]
+          (let [op (case op-kw
+                     :inject inject-dependencies
+                     :deject deject-dependencies)]
+            (fn [xf]
+              (fn
+                ([]
+                 (xf))
+                ([system]
+                 (xf system))
+                ([system {:keys [name] :as component}]
+                 (let [resulting-component (op system component)]
+                   (xf (assoc-in system [:components name] resulting-component) resulting-component)))))))
+
+        (make-start-or-stop-xf [op-kw]
+          (fn [xf]
+            (fn
+              ([]
+               (xf))
+              ([system]
+               (xf system))
+              ([system {:keys [name] :as component}]
+               (let [started-component (start-or-stop-component component op-kw)]
+                 (xf (assoc-in system [:components name] started-component) started-component))))))]
 
   (defn start-system [{:keys [start-order] :as system}]
-    (-> system
-        (start-or-stop-components start-order :start)
-        (inject-dependencies)))  ;; FIXME: need to inject dependencies immediately, as components might need their deps on startup
+    (transduce (comp lookup-component-xf
+                     (make-inject-or-deject-dependencies-xf :inject)
+                     (make-start-or-stop-xf :start))
+               (fn [& [system component]]
+                 system)
+               system start-order))
 
   (defn stop-system [{:keys [start-order] :as system}]
-    (-> system
-        (deject-dependencies)
-        (start-or-stop-components (reverse start-order) :stop))))
+    (transduce (comp lookup-component-xf
+                     (make-start-or-stop-xf :stop)
+                     (make-inject-or-deject-dependencies-xf :deject))
+               (fn [& [system component]]
+                 system)
+               system (reverse start-order))))
 
 
 
@@ -123,5 +154,5 @@
   (-> components
       init-system
       start-system
-      stop-system
+      #_stop-system
       clojure.pprint/pprint))

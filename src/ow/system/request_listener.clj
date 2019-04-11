@@ -1,7 +1,6 @@
 (ns ow.system.request-listener
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]
-            [ow.system :as ows]))
+            [clojure.tools.logging :as log]))
 
 (def ^:private ^:dynamic *request-map* {})
 

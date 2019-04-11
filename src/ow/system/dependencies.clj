@@ -1,7 +1,6 @@
 (ns ow.system.dependencies
   (:require [clojure.set :as set]
             [clojure.tools.logging :as log]
-            [ow.system :as ows]
             [ubergraph.core :as ug]
             [ubergraph.alg :as uga]))
 
