@@ -21,3 +21,35 @@
                                              (set start-order))
           start-order        (apply conj start-order missing-components)]
       (assoc system :start-order start-order))))
+
+(letfn [(inject-dependencies [system component]
+          (if (set? (:dependencies component))
+            (update component :dependencies
+                    #(->> (map (fn [depcn]
+                                 [depcn (get-in system [:components depcn])])
+                               %)
+                          (into {})))
+            component))
+
+        (deject-dependencies [_ component]
+          (if (map? (:dependencies component))
+            (update component :dependencies
+                    #(-> (map (fn [[depcn _]]
+                                depcn)
+                              %)
+                         set))
+            component))]
+
+  (defn make-inject-or-deject-dependencies-xf [op-kw]
+    (let [op (case op-kw
+               :inject inject-dependencies
+               :deject deject-dependencies)]
+      (fn [xf]
+        (fn
+          ([]
+           (xf))
+          ([system]
+           (xf system))
+          ([system {:keys [name] :as component}]
+           (let [resulting-component (op system component)]
+             (xf (assoc-in system [:components name] resulting-component) resulting-component))))))))

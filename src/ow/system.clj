@@ -1,10 +1,12 @@
 (ns ow.system
   (:require [clojure.tools.logging :as log]
             [ow.system.dependencies :as sd]
-            #_[ow.system.lifecycles :as sl]
+            [ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
 (defn init-system [components]
+  ;;; TODO: make this prettier, i.e. use transducers here as well.
+  ;;; TODO: do we need a distinction between init-system & init-component?
   (letfn [(update-components [system f]
             (update system :components
                     #(->> (map (fn [[name component]]
@@ -21,8 +23,7 @@
                                    init-system-component-names)
           init-components-fn (fn [system]
                                (let [init-fn (fn [name component]
-                                               ((comp #_sl/init-component
-                                                      srl/init-component)
+                                               ((comp srl/init-component)
                                                 component))]
                                  (update-components system init-fn)))]
 
@@ -30,81 +31,27 @@
            init-system-fn
            init-components-fn))))
 
-(letfn [(start-or-stop-component [{:keys [lifecycles ::started?] :as component} op-kw]
-          (let [started! (= op-kw :start)]
-            (if-not (= started! started?)
-              (reduce (fn [component lifecycle]
-                        (let [f (get lifecycle op-kw identity)]
-                          (-> (f component)
-                              (assoc ::started? started!))))
-                      component
-                      lifecycles)
-              component)))
-
-        (inject-dependencies [system component]
-          (if (set? (:dependencies component))
-            (update component :dependencies
-                    #(->> (map (fn [depcn]
-                                 [depcn (get-in system [:components depcn])])
-                               %)
-                          (into {})))
-            component))
-
-        (deject-dependencies [_ component]
-          (if (map? (:dependencies component))
-            (update component :dependencies
-                    #(-> (map (fn [[depcn _]]
-                                depcn)
-                              %)
-                         set))
-            component))
-
-        (lookup-component-xf [xf]
+(letfn [(lookup-component-xf [xf]
           (fn
             ([]
              (xf))
             ([system]
              (xf system))
             ([system component-name]
-             (xf system (get-in system [:components component-name])))))
-
-        (make-inject-or-deject-dependencies-xf [op-kw]
-          (let [op (case op-kw
-                     :inject inject-dependencies
-                     :deject deject-dependencies)]
-            (fn [xf]
-              (fn
-                ([]
-                 (xf))
-                ([system]
-                 (xf system))
-                ([system {:keys [name] :as component}]
-                 (let [resulting-component (op system component)]
-                   (xf (assoc-in system [:components name] resulting-component) resulting-component)))))))
-
-        (make-start-or-stop-xf [op-kw]
-          (fn [xf]
-            (fn
-              ([]
-               (xf))
-              ([system]
-               (xf system))
-              ([system {:keys [name] :as component}]
-               (let [started-component (start-or-stop-component component op-kw)]
-                 (xf (assoc-in system [:components name] started-component) started-component))))))]
+             (xf system (get-in system [:components component-name])))))]
 
   (defn start-system [{:keys [start-order] :as system}]
     (transduce (comp lookup-component-xf
-                     (make-inject-or-deject-dependencies-xf :inject)
-                     (make-start-or-stop-xf :start))
+                     (sd/make-inject-or-deject-dependencies-xf :inject)
+                     (sl/make-start-or-stop-xf :start))
                (fn [& [system component]]
                  system)
                system start-order))
 
   (defn stop-system [{:keys [start-order] :as system}]
     (transduce (comp lookup-component-xf
-                     (make-start-or-stop-xf :stop)
-                     (make-inject-or-deject-dependencies-xf :deject))
+                     (sl/make-start-or-stop-xf :stop)
+                     (sd/make-inject-or-deject-dependencies-xf :deject))
                (fn [& [system component]]
                  system)
                system (reverse start-order))))
