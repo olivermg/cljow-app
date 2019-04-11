@@ -16,14 +16,16 @@
   (let [out-ch  (a/chan)
         in-mult (a/mult out-ch)]
     (reduce (fn [system [name {:keys [request-listener] :as this}]]
-              (-> system
-                  (update-in [:components name :request-listener :in-mult] #(or % in-mult))
-                  (update-in [:components name :request-listener :out-ch] #(or % out-ch))))
+              (let [system (if request-listener
+                             (update-in system [:components name :request-listener :in-mult] #(or % in-mult))
+                             system)
+                    system (update-in system [:components name :requester :out-ch] #(or % out-ch))]
+                system))
             system (:components system))))
 
 (defn init-component [{:keys [request-listener] :as this}]
   (if request-listener
-    (let [{:keys [topic-fn topic handler in-mult out-ch]} request-listener
+    (let [{:keys [topic-fn topic handler in-mult]} request-listener
           lifecycle {:start (fn [this]
                               (let [in-ch  (a/tap in-mult (a/chan))
                                     in-pub (a/pub in-ch (or topic-fn :topic))
@@ -60,8 +62,8 @@
             (update-in this [:lifecycles] conj lifecycle))
     this))
 
-(defn emit [{:keys [request-listener] :as this} topic request]
-  (let [{:keys [out-ch]} request-listener
+(defn emit [{:keys [requester] :as this} topic request]
+  (let [{:keys [out-ch]} requester
         event-map {:id      (rand-int Integer/MAX_VALUE)
                    :flowid  (get *request-map* :flowid
                                  (rand-int Integer/MAX_VALUE))
@@ -71,8 +73,8 @@
       (trace-request "emitting event-map"))
     (a/put! out-ch event-map)))
 
-(defn request [{:keys [request-listener] :as this} topic request & {:keys [timeout]}]
-  (let [{:keys [out-ch]} request-listener
+(defn request [{:keys [requester] :as this} topic request & {:keys [timeout]}]
+  (let [{:keys [out-ch]} requester
         response-ch (a/promise-chan)
         request-map {:id          (rand-int Integer/MAX_VALUE)
                      :flowid      (get *request-map* :flowid

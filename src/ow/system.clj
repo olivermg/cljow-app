@@ -30,28 +30,34 @@
            init-system-fn
            init-components-fn))))
 
-(letfn [(start-or-stop-component [{:keys [lifecycles] :as component} op-kw]
-          (let [started? (= op-kw :start)]
-            (reduce (fn [component lifecycle]
-                      (let [f (get lifecycle op-kw identity)]
-                        (-> (f component)
-                            (assoc ::started? started?))))
-                    component
-                    lifecycles)))
+(letfn [(start-or-stop-component [{:keys [lifecycles ::started?] :as component} op-kw]
+          (let [started! (= op-kw :start)]
+            (if-not (= started! started?)
+              (reduce (fn [component lifecycle]
+                        (let [f (get lifecycle op-kw identity)]
+                          (-> (f component)
+                              (assoc ::started? started!))))
+                      component
+                      lifecycles)
+              component)))
 
         (inject-dependencies [system component]
-          (update component :dependencies
-                  #(->> (map (fn [depcn]
-                               [depcn (get-in system [:components depcn])])
-                             %)
-                        (into {}))))
+          (if (set? (:dependencies component))
+            (update component :dependencies
+                    #(->> (map (fn [depcn]
+                                 [depcn (get-in system [:components depcn])])
+                               %)
+                          (into {})))
+            component))
 
         (deject-dependencies [_ component]
-          (update component :dependencies
-                  #(-> (map (fn [[depcn _]]
-                              depcn)
-                            %)
-                       set)))
+          (if (map? (:dependencies component))
+            (update component :dependencies
+                    #(-> (map (fn [[depcn _]]
+                                depcn)
+                              %)
+                         set))
+            component))
 
         (lookup-component-xf [xf]
           (fn
