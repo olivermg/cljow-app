@@ -16,19 +16,19 @@
   (let [out-ch  (a/chan)
         in-mult (a/mult out-ch)]
     (reduce (fn [system [name {:keys [request-listener] :as this}]]
-              (if request-listener
-                (-> system
-                    (update-in [:components name :request-listener :in-mult] #(or % in-mult))
-                    (update-in [:components name :request-listener :out-ch] #(or % out-ch)))
-                system))
+              (-> system
+                  (update-in [:components name :request-listener :in-mult] #(or % in-mult))
+                  (update-in [:components name :request-listener :out-ch] #(or % out-ch))))
             system (:components system))))
 
 (defn init-component [{:keys [request-listener] :as this}]
   (if request-listener
-    (let [{:keys [in-mult out-ch]} request-listener
+    (let [{:keys [topic-fn topic handler in-mult out-ch]} request-listener
           lifecycle {:start (fn [this]
-                              (let [in-ch (a/tap in-mult (a/chan))]
-                                (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-ch)]
+                              (let [in-ch  (a/tap in-mult (a/chan))
+                                    in-pub (a/pub in-ch (or topic-fn :topic))
+                                    in-sub (a/sub in-pub topic (a/chan))]
+                                (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-sub)]
                                   (if-not (nil? request-map)
                                     (do (binding [*request-map* request-map]
                                           #_(trace-request "received request-map" this)
@@ -39,7 +39,7 @@
                                                                                  :trace-info    (trace-info this)}))
                                                   response (try
                                                              (trace-request "invoking handler" this)
-                                                             (request-listener this request)
+                                                             (handler this request)
                                                              (catch Exception e
                                                                (handle-exception e)
                                                                e)
@@ -53,9 +53,48 @@
                                                                                    (throw response))
                                                 true                           (do (trace-request  "discarding handler's response" this)
                                                                                    response)))))
-                                        (recur (a/<! in-ch)))))
+                                        (recur (a/<! in-sub)))))
                                 (assoc-in this [:request-listener :in-ch] in-ch)))
                      :stop (fn [this]
                              (update-in this [:request-listener :in-ch] #(and % a/close! nil)))}]
-      (update-in this [:lifecycles] conj lifecycle))
+            (update-in this [:lifecycles] conj lifecycle))
     this))
+
+(defn emit [{:keys [request-listener] :as this} topic request]
+  (let [{:keys [out-ch]} request-listener
+        event-map {:id      (rand-int Integer/MAX_VALUE)
+                   :flowid  (get *request-map* :flowid
+                                 (rand-int Integer/MAX_VALUE))
+                   :topic   topic
+                   :request request}]
+    (binding [*request-map* event-map]
+      (trace-request "emitting event-map"))
+    (a/put! out-ch event-map)))
+
+(defn request [{:keys [request-listener] :as this} topic request & {:keys [timeout]}]
+  (let [{:keys [out-ch]} request-listener
+        response-ch (a/promise-chan)
+        request-map {:id          (rand-int Integer/MAX_VALUE)
+                     :flowid      (get *request-map* :flowid
+                                       (rand-int Integer/MAX_VALUE))
+                     :topic       topic
+                     :request     request
+                     :response-ch response-ch}
+        receipt     (a/go
+                      (let [timeout-ch    (a/timeout (or timeout 30000))
+                            [response ch] (a/alts! [response-ch timeout-ch])]
+                        (if (= ch response-ch)
+                          (if-not (nil? response)
+                            response
+                            (ex-info "response channel was closed" {:trace-info (trace-info)
+                                                                    :request request}))
+                          (ex-info "timeout while waiting for response" {:trace-info (trace-info)
+                                                                         :request request}))))]
+    (binding [*request-map* request-map]
+      (trace-request "requesting request-map")
+      (a/put! out-ch request-map)
+      (let [response (a/<!! receipt)]
+        (trace-request "received response")
+        (if-not (instance? Throwable response)
+          response
+          (throw response))))))
