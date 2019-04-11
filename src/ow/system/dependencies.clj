@@ -5,7 +5,7 @@
             [ubergraph.alg :as uga]))
 
 (defn init-system [{:keys [components] :as system}]
-  (let [dags (reduce (fn [graph [component-name {:keys [dependencies] :as component}]]
+  (let [dags (reduce (fn [graph [component-name {:keys [ow.system/dependencies] :as component}]]
                        (let [graph (ug/add-nodes graph component-name)]
                          (->> dependencies
                               (map (fn [d] [component-name d]))
@@ -25,7 +25,7 @@
 
 (letfn [(inject-dependencies [system {:keys [::prev-dependency-op name] :as component}]
           (if-not (= prev-dependency-op :inject)
-            (-> (update component :dependencies
+            (-> (update component :ow.system/dependencies
                         #(->> (map (fn [depcn]
                                      (log/debug (str "Injecting into " name ": " depcn))
                                      [depcn (get-in system [:components depcn])])
@@ -36,7 +36,7 @@
 
         (deject-dependencies [_ {:keys [::prev-dependency-op name] :as component}]
           (if-not (= prev-dependency-op :deject)
-            (-> (update component :dependencies
+            (-> (update component :ow.system/dependencies
                         #(-> (map (fn [[depcn _]]
                                     (log/debug (str "Dejecting from " name ": " depcn))
                                     depcn)

@@ -15,15 +15,15 @@
 (defn init-system [system]
   (let [out-ch  (a/chan)
         in-mult (a/mult out-ch)]
-    (reduce (fn [system [name {:keys [request-listener] :as this}]]
+    (reduce (fn [system [name {:keys [ow.system/request-listener] :as this}]]
               (let [system (if request-listener
-                             (update-in system [:components name :request-listener :in-mult] #(or % in-mult))
+                             (update-in system [:components name :ow.system/request-listener :in-mult] #(or % in-mult))
                              system)
-                    system (update-in system [:components name :requester :out-ch] #(or % out-ch))]
+                    system (update-in system [:components name :ow.system/requester :out-ch] #(or % out-ch))]
                 system))
             system (:components system))))
 
-(defn init-component [{:keys [request-listener] :as this}]
+(defn init-component [{:keys [ow.system/request-listener] :as this}]
   (if request-listener
     (let [{:keys [topic-fn topic handler in-mult]} request-listener
           lifecycle {:start (fn [this]
@@ -56,13 +56,13 @@
                                                 true                           (do (trace-request  "discarding handler's response" this)
                                                                                    response)))))
                                         (recur (a/<! in-sub)))))
-                                (assoc-in this [:request-listener :in-ch] in-ch)))
+                                (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
                      :stop (fn [this]
-                             (update-in this [:request-listener :in-ch] #(and % a/close! nil)))}]
-            (update-in this [:lifecycles] conj lifecycle))
+                             (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}]
+            (update-in this [:ow.system/lifecycles] conj lifecycle))
     this))
 
-(defn emit [{:keys [requester] :as this} topic request]
+(defn emit [{:keys [ow.system/requester] :as this} topic request]
   (let [{:keys [out-ch]} requester
         event-map {:id      (rand-int Integer/MAX_VALUE)
                    :flowid  (get *request-map* :flowid
@@ -73,7 +73,7 @@
       (trace-request "emitting event-map"))
     (a/put! out-ch event-map)))
 
-(defn request [{:keys [requester] :as this} topic request & {:keys [timeout]}]
+(defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
   (let [{:keys [out-ch]} requester
         response-ch (a/promise-chan)
         request-map {:id          (rand-int Integer/MAX_VALUE)
