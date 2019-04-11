@@ -1,15 +1,16 @@
 (ns ow.app
-  (:require [clojure.java.io :as io]
+  (:require #_[clojure.java.io :as io]
             [clojure.tools.logging :as log]
-            [integrant.core :as ig]
-            [ow.app.config :as cfg]
-            [ow.app.info :as info]))
+            #_[integrant.core :as ig]
+            #_[ow.app.config :as cfg]
+            [ow.app.info :as info]
+            [ow.system :as ows]))
 
-(defn run [profile]
+(defn run [components]
   (log/info "SYSTEM INFO" (info/get-info))
-  (let [config (cfg/config (io/resource "config.edn") profile)]
-    (ig/init config)))
+  (-> components
+      (ows/init-system)
+      (ows/start-system)))
 
 (defn quit [system]
-  (and system (ig/halt! system))
-  nil)
+  (ows/stop-system system))

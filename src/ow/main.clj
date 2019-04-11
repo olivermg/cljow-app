@@ -4,13 +4,8 @@
             [ow.app :as oa]
             [signal.handler :as sig]))
 
-(defn main [& args]  ;; invoke this from your project's -main entrypoint
-  (let [profile (-> (or (System/getenv "PROFILE")
-                        "prod")
-                    str/lower-case
-                    keyword)
-        _ (log/warn (format "Starting with %s profile" profile))
-        system (atom (oa/run profile))]
+(defn main [components & args]  ;; invoke this from your project's -main entrypoint
+  (let [system (atom (oa/run components))]
     (sig/with-handler :int
       (log/warn "Caught INT, quitting...")
       (swap! system oa/quit))
