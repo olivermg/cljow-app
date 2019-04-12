@@ -29,7 +29,7 @@
             (-> (update component :ow.system/dependencies
                         #(->> (map (fn [depcn]
                                      (log/debug (str "Injecting into " name "#" instance ": " depcn))
-                                     [depcn (get-in system [:components depcn])])
+                                     [depcn (get-in system [:components depcn :workers])])
                                    %)
                               (into {})))
                 (assoc ::prev-dependency-op :inject))
@@ -57,7 +57,7 @@
           ([system] (rf system))
           ([system {:keys [name ow.system/instance] :as component}]
            (let [resulting-component (op system component)]
-             (rf (assoc-in system [:components name instance] resulting-component) resulting-component))))))))
+             (rf (assoc-in system [:components name :workers instance] resulting-component) resulting-component))))))))
 
 (defn get-dependency [{:keys [ow.system/dependencies] :as this} name]
   (-> (get dependencies name)

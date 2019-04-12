@@ -20,4 +20,4 @@
         ([system] (rf system))
         ([system {:keys [name ow.system/instance] :as component}]
          (let [started-component (start-or-stop-component component op-kw)]
-           (rf (assoc-in system [:components name instance] started-component) started-component)))))))
+           (rf (assoc-in system [:components name :workers instance] started-component) started-component)))))))

@@ -18,12 +18,16 @@
     (fn
       ([] (rf))
       ([system] (rf system))
-      ([system {:keys [name ow.system/request-listener] :as component}]
-       (let [component (if request-listener
-                         (update-in component [:ow.system/request-listener :in-mult] #(or % in-mult))
-                         component)
+      ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
+       (let [system    (if request-listener
+                         (let [{:keys [topic-fn topic]} request-listener]
+                           (update-in system [:components name :worker-sub]
+                                      #(or % (let [in-tap (a/tap in-mult (a/chan))
+                                                   in-pub (a/pub in-tap (or topic-fn :topic))]
+                                               (a/sub in-pub topic (a/chan))))))
+                         system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
-             system    (assoc-in system [:components name] component)]
+             system    (assoc-in system [:components name :workers instance] component)]
          (rf system component))))))
 
 (defn init-lifecycle-xf [rf]
@@ -53,25 +57,25 @@
                                                                (throw response))
                             true                           (do (trace-request  "discarding handler's response" this)
                                                                response)))))
-                    (recur (a/<! in-ch))))))]
+                    (recur (a/<! in-ch))))))
 
-    (let [lifecycle {:start (fn [{{:keys [topic-fn topic in-mult]} :ow.system/request-listener :as this}]
-                              (let [in-ch  (a/tap in-mult (a/chan))
-                                    in-pub (a/pub in-ch (or topic-fn :topic))
-                                    in-sub (a/sub in-pub topic (a/chan))]
-                                (run-loop this in-sub)
-                                (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
-                     :stop (fn [this]
-                             (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}]
+          (make-lifecycle [system component-name]
+            (let [worker-sub (get-in system [:components component-name :worker-sub])]
+              {:start (fn request-listener-start [{{:keys [topic-fn topic]} :ow.system/request-listener :as this}]
+                        (let [in-ch (a/pipe worker-sub (a/chan))]
+                          (run-loop this in-ch)
+                          (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
+               :stop (fn request-listener-stop [this]
+                       (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}))]
 
-      (fn
-        ([] (rf))
-        ([system] (rf system))
-        ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
-         (let [component (if request-listener
-                           (update-in component [:ow.system/lifecycles] conj lifecycle)
-                           component)]
-           (rf (assoc-in system [:components name instance] component) component)))))))
+    (fn
+      ([] (rf))
+      ([system] (rf system))
+      ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
+       (let [component (if request-listener
+                         (update-in component [:ow.system/lifecycles] conj (make-lifecycle system name))
+                         component)]
+         (rf (assoc-in system [:components name :workers instance] component) component))))))
 
 (defn emit [{:keys [ow.system/requester] :as this} topic request]
   (let [{:keys [out-ch]} requester

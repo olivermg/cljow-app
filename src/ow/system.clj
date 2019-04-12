@@ -12,25 +12,26 @@
              (let [component (assoc component :name name)]
                (rf (assoc-in system [:components name] component) component)))))
 
-        (init-instance-pools-xf [rf]
+        (init-workers-xf [rf]
           (fn
             ([] (rf))
             ([system] (rf system))
             ([system {:keys [name ow.system/instances] :as component}]
-             (let [components (reduce (fn [components i]
-                                        (conj components (-> component
-                                                             (assoc :ow.system/instance i)
-                                                             (dissoc :ow.system/instances))))
-                                      [] (range (or instances 1)))
-                   system (assoc-in system [:components name] components)]
-               (rf system components)))))]
+             (let [component (dissoc component :ow.system/instances)
+                   workers   (reduce (fn [workers i]
+                                       (conj workers (assoc component :ow.system/instance i)))
+                                     [] (range (or instances 1)))
+                   system    (assoc-in system [:components name] {:workers workers})]
+               (reduce (fn [system worker]
+                         (rf system worker))
+                       system workers)))))]
 
   (defn init-system [components]
     (transduce (comp init-component-names-xf
                      sd/init-dependencies-xf
+                     init-workers-xf
                      srl/init-request-response-channels-xf
-                     srl/init-lifecycle-xf
-                     init-instance-pools-xf)
+                     srl/init-lifecycle-xf)
                (fn [& [system component]]
                  system)
                {:components components} components)))
@@ -43,7 +44,7 @@
             ([system component-name]
              (reduce (fn [system component]
                        (rf system component))
-                     system (get-in system [:components component-name])))))]
+                     system (get-in system [:components component-name :workers])))))]
 
   (defn start-system [{:keys [start-order] :as system}]
     (transduce (comp lookup-component-xf
@@ -117,5 +118,5 @@
   (-> components
       init-system
       start-system
-      #_stop-system
+      stop-system
       clojure.pprint/pprint))
