@@ -4,12 +4,11 @@
 
 (def ^:private ^:dynamic *request-map* {})
 
-(defn- trace-info [& [this]]
+(defn- trace-info [this]
   (-> (select-keys *request-map* #{:id :flowid})
-      (assoc :name (or (and this (:name this))
-                       "(n/a)"))))
+      (assoc :name (:ow.system/name this))))
 
-(defn- trace-request [msg & [this]]
+(defn- trace-request [this msg]
   (log/trace (trace-info this) msg))
 
 (defn init-request-response-channels-xf [rf]
@@ -35,14 +34,14 @@
             (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-ch)]
               (if-not (nil? request-map)
                 (do (binding [*request-map* request-map]
-                      #_(trace-request "received request-map" this)
+                      #_(trace-request this "received request-map")
                       (future
                         (let [handle-exception (fn handle-exception [e]
                                                  (log/debug "FAILED to invoke handler"
                                                             {:error-message (str e)
                                                              :trace-info    (trace-info this)}))
                               response (try
-                                         (trace-request "invoking handler" this)
+                                         (trace-request this "invoking handler")
                                          (handler this request)
                                          (catch Exception e
                                            (handle-exception e)
@@ -51,11 +50,11 @@
                                            (handle-exception e)
                                            e))]
                           (cond
-                            response-ch                    (do (trace-request "sending back handler's response" this)
+                            response-ch                    (do (trace-request this "sending back handler's response")
                                                                (a/put! response-ch response))
-                            (instance? Throwable response) (do (trace-request "throwing handler's exception" this)
+                            (instance? Throwable response) (do (trace-request this "throwing handler's exception")
                                                                (throw response))
-                            true                           (do (trace-request  "discarding handler's response" this)
+                            true                           (do (trace-request this "discarding handler's response")
                                                                response)))))
                     (recur (a/<! in-ch))))))
 
@@ -85,7 +84,7 @@
                    :topic   topic
                    :request request}]
     (binding [*request-map* event-map]
-      (trace-request "emitting event-map"))
+      (trace-request this "emitting event-map"))
     (a/put! out-ch event-map)))
 
 (defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
@@ -103,15 +102,15 @@
                         (if (= ch response-ch)
                           (if-not (nil? response)
                             response
-                            (ex-info "response channel was closed" {:trace-info (trace-info)
+                            (ex-info "response channel was closed" {:trace-info (trace-info this)
                                                                     :request request}))
-                          (ex-info "timeout while waiting for response" {:trace-info (trace-info)
+                          (ex-info "timeout while waiting for response" {:trace-info (trace-info this)
                                                                          :request request}))))]
     (binding [*request-map* request-map]
-      (trace-request "requesting request-map")
+      (trace-request this "requesting request-map")
       (a/put! out-ch request-map)
       (let [response (a/<!! receipt)]
-        (trace-request "received response")
+        (trace-request this "received response")
         (if-not (instance? Throwable response)
           response
           (throw response))))))
