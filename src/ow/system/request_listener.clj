@@ -18,7 +18,7 @@
     (fn
       ([] (rf))
       ([system] (rf system))
-      ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
+      ([system {:keys [ow.system/name ow.system/instance ow.system/request-listener] :as component}]
        (let [system    (if request-listener
                          (let [{:keys [topic-fn topic]} request-listener]
                            (update-in system [:components name :worker-sub]
@@ -71,7 +71,7 @@
     (fn
       ([] (rf))
       ([system] (rf system))
-      ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
+      ([system {:keys [ow.system/name ow.system/instance ow.system/request-listener] :as component}]
        (let [component (if request-listener
                          (update-in component [:ow.system/lifecycles] conj (make-lifecycle system name))
                          component)]

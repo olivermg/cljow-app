@@ -9,14 +9,14 @@
             ([] (rf))
             ([system] (rf system))
             ([system [name component]]
-             (let [component (assoc component :name name)]
+             (let [component (assoc component :ow.system/name name)]
                (rf (assoc-in system [:components name] component) component)))))
 
         (init-workers-xf [rf]
           (fn
             ([] (rf))
             ([system] (rf system))
-            ([system {:keys [name ow.system/instances] :as component}]
+            ([system {:keys [ow.system/name ow.system/instances] :as component}]
              (let [component (dissoc component :ow.system/instances)
                    workers   (reduce (fn [workers i]
                                        (conj workers (assoc component :ow.system/instance i)))
@@ -27,7 +27,7 @@
                        system workers)))))]
 
   (defn init-system [components]
-    (transduce (comp init-component-names-xf
+    (transduce (comp init-component-names-xf  ;; NOTE: order is important here, as shape of system changes in the process
                      sd/init-dependencies-xf
                      init-workers-xf
                      srl/init-request-response-channels-xf
@@ -75,7 +75,7 @@
                   :c2 {:ow.system/lifecycles [{:start (fn [this]
                                                         (println "START C2")
                                                         (println "  C2 DEPENDS ON C1:" (some->> this :ow.system/dependencies :c1
-                                                                                                (map (fn [{:keys [name ow.system/instance]}]
+                                                                                                (map (fn [{:keys [ow.system/name ow.system/instance]}]
                                                                                                        (str name "#" instance)))))
                                                         this)
                                                :stop (fn [this]
@@ -90,7 +90,7 @@
                        :ow.system/lifecycles [{:start (fn [this]
                                                         (println "START C3")
                                                         (println "  C3 DEPENDS ON C4:" (some->> this :ow.system/dependencies :c4
-                                                                                                (map (fn [{:keys [name ow.system/instance]}]
+                                                                                                (map (fn [{:keys [ow.system/name ow.system/instance]}]
                                                                                                        (str name "#" instance)))))
                                                         this)
                                                :stop (fn [this]

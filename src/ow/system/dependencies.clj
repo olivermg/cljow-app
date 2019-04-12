@@ -16,7 +16,7 @@
                                                 (set start-order))
              start-order        (apply conj start-order missing-components)]
          (rf (assoc system :start-order start-order))))
-      ([system {:keys [name ow.system/dependencies] :as component}]
+      ([system {:keys [ow.system/name ow.system/dependencies] :as component}]
        (vswap! dags #(let [graph (ug/add-nodes % name)]
                        (->> dependencies
                             (map (fn [d] [name d]))
@@ -24,7 +24,7 @@
        (rf system component)))))
 
 
-(letfn [(inject-dependencies [system {:keys [::prev-dependency-op name ow.system/instance] :as component}]
+(letfn [(inject-dependencies [system {:keys [::prev-dependency-op ow.system/name ow.system/instance] :as component}]
           (if-not (= prev-dependency-op :inject)
             (-> (update component :ow.system/dependencies
                         #(->> (map (fn [depcn]
@@ -35,7 +35,7 @@
                 (assoc ::prev-dependency-op :inject))
             component))
 
-        (deject-dependencies [_ {:keys [::prev-dependency-op name ow.system/instance] :as component}]
+        (deject-dependencies [_ {:keys [::prev-dependency-op ow.system/name ow.system/instance] :as component}]
           (if-not (= prev-dependency-op :deject)
             (-> (update component :ow.system/dependencies
                         #(-> (map (fn [[depcn _]]
@@ -55,7 +55,7 @@
         (fn
           ([] (rf))
           ([system] (rf system))
-          ([system {:keys [name ow.system/instance] :as component}]
+          ([system {:keys [ow.system/name ow.system/instance] :as component}]
            (let [resulting-component (op system component)]
              (rf (assoc-in system [:components name :workers instance] resulting-component) resulting-component))))))))
 
