@@ -12,55 +12,64 @@
 (defn- trace-request [msg & [this]]
   (log/trace (trace-info this) msg))
 
-(defn init-system [system]
+(defn init-request-response-channels-xf [rf]
   (let [out-ch  (a/chan)
         in-mult (a/mult out-ch)]
-    (reduce (fn [system [name {:keys [ow.system/request-listener] :as this}]]
-              (let [system (if request-listener
-                             (update-in system [:components name :ow.system/request-listener :in-mult] #(or % in-mult))
-                             system)
-                    system (update-in system [:components name :ow.system/requester :out-ch] #(or % out-ch))]
-                system))
-            system (:components system))))
+    (fn
+      ([] (rf))
+      ([system] (rf system))
+      ([system {:keys [name ow.system/request-listener] :as component}]
+       (let [component (if request-listener
+                         (update-in component [:ow.system/request-listener :in-mult] #(or % in-mult))
+                         component)
+             component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
+             system    (assoc-in system [:components name] component)]
+         (rf system component))))))
 
-(defn init-component [{:keys [ow.system/request-listener] :as this}]
-  (if request-listener
-    (let [{:keys [topic-fn topic handler in-mult]} request-listener
-          lifecycle {:start (fn [this]
-                              (let [in-ch  (a/tap in-mult (a/chan))
-                                    in-pub (a/pub in-ch (or topic-fn :topic))
-                                    in-sub (a/sub in-pub topic (a/chan))]
-                                (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-sub)]
-                                  (if-not (nil? request-map)
-                                    (do (binding [*request-map* request-map]
-                                          #_(trace-request "received request-map" this)
-                                          (future
-                                            (let [handle-exception (fn handle-exception [e]
-                                                                     (log/debug "FAILED to invoke handler"
-                                                                                {:error-message (str e)
-                                                                                 :trace-info    (trace-info this)}))
-                                                  response (try
-                                                             (trace-request "invoking handler" this)
-                                                             (handler this request)
-                                                             (catch Exception e
-                                                               (handle-exception e)
-                                                               e)
-                                                             (catch Error e
-                                                               (handle-exception e)
-                                                               e))]
-                                              (cond
-                                                response-ch                    (do (trace-request "sending back handler's response" this)
-                                                                                   (a/put! response-ch response))
-                                                (instance? Throwable response) (do (trace-request "throwing handler's exception" this)
-                                                                                   (throw response))
-                                                true                           (do (trace-request  "discarding handler's response" this)
-                                                                                   response)))))
-                                        (recur (a/<! in-sub)))))
-                                (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
-                     :stop (fn [this]
-                             (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}]
-            (update-in this [:ow.system/lifecycles] conj lifecycle))
-    this))
+(defn init-lifecycle-xf [rf]
+  (letfn [(make-lifecycle [{:keys [topic-fn topic handler in-mult] :as request-listener}]
+            {:start (fn [this]
+                      (let [in-ch  (a/tap in-mult (a/chan))
+                            in-pub (a/pub in-ch (or topic-fn :topic))
+                            in-sub (a/sub in-pub topic (a/chan))]
+                        (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-sub)]
+                          (if-not (nil? request-map)
+                            (do (binding [*request-map* request-map]
+                                  #_(trace-request "received request-map" this)
+                                  (future
+                                    (let [handle-exception (fn handle-exception [e]
+                                                             (log/debug "FAILED to invoke handler"
+                                                                        {:error-message (str e)
+                                                                         :trace-info    (trace-info this)}))
+                                          response (try
+                                                     (trace-request "invoking handler" this)
+                                                     (handler this request)
+                                                     (catch Exception e
+                                                       (handle-exception e)
+                                                       e)
+                                                     (catch Error e
+                                                       (handle-exception e)
+                                                       e))]
+                                      (cond
+                                        response-ch                    (do (trace-request "sending back handler's response" this)
+                                                                           (a/put! response-ch response))
+                                        (instance? Throwable response) (do (trace-request "throwing handler's exception" this)
+                                                                           (throw response))
+                                        true                           (do (trace-request  "discarding handler's response" this)
+                                                                           response)))))
+                                (recur (a/<! in-sub)))))
+                        (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
+             :stop (fn [this]
+                     (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))})]
+
+    (fn
+      ([] (rf))
+      ([system] (rf system))
+      ([system {:keys [name ow.system/instance ow.system/request-listener] :as component}]
+       (let [component (if request-listener
+                         (update-in component [:ow.system/lifecycles] conj (make-lifecycle request-listener))
+                         component)]
+         (rf (assoc-in system [:components name instance] component) component))))))
 
 (defn emit [{:keys [ow.system/requester] :as this} topic request]
   (let [{:keys [out-ch]} requester

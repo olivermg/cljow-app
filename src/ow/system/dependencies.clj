@@ -4,41 +4,42 @@
             [ubergraph.core :as ug]
             [ubergraph.alg :as uga]))
 
-(defn init-system [{:keys [components] :as system}]
-  (let [dags (reduce (fn [graph [component-name {:keys [ow.system/dependencies] :as component}]]
-                       (let [graph (ug/add-nodes graph component-name)]
-                         (->> dependencies
-                              (map (fn [d] [component-name d]))
-                              (apply ug/add-edges graph))))
-                     (ug/digraph)
-                     components)]
+(defn init-dependencies-xf [rf]
+  (let [dags (volatile! (ug/digraph))]
+    (fn
+      ([] (rf))
+      ([system]
+       (when-not (-> @dags uga/connect uga/dag?)
+         (throw (ex-info "circular dependencies detected" {:dependency-graph (with-out-str (ug/pprint @dags))})))
+       (let [start-order        (-> @dags uga/connect uga/post-traverse)
+             missing-components (set/difference (set (ug/nodes @dags))
+                                                (set start-order))
+             start-order        (apply conj start-order missing-components)]
+         (rf (assoc system :start-order start-order))))
+      ([system {:keys [name ow.system/dependencies] :as component}]
+       (vswap! dags #(let [graph (ug/add-nodes % name)]
+                       (->> dependencies
+                            (map (fn [d] [name d]))
+                            (apply ug/add-edges graph))))
+       (rf system component)))))
 
-    (when-not (-> dags uga/connect uga/dag?)
-      (throw (ex-info "circular dependencies detected" {:dependency-graph (with-out-str (ug/pprint dags))})))
 
-    (let [start-order        (-> dags uga/connect uga/post-traverse)
-          missing-components (set/difference (set (ug/nodes dags))
-                                             (set start-order))
-          start-order        (apply conj start-order missing-components)]
-      (assoc system :start-order start-order))))
-
-
-(letfn [(inject-dependencies [system {:keys [::prev-dependency-op name] :as component}]
+(letfn [(inject-dependencies [system {:keys [::prev-dependency-op name ow.system/instance] :as component}]
           (if-not (= prev-dependency-op :inject)
             (-> (update component :ow.system/dependencies
                         #(->> (map (fn [depcn]
-                                     (log/debug (str "Injecting into " name ": " depcn))
+                                     (log/debug (str "Injecting into " name "#" instance ": " depcn))
                                      [depcn (get-in system [:components depcn])])
                                    %)
                               (into {})))
                 (assoc ::prev-dependency-op :inject))
             component))
 
-        (deject-dependencies [_ {:keys [::prev-dependency-op name] :as component}]
+        (deject-dependencies [_ {:keys [::prev-dependency-op name ow.system/instance] :as component}]
           (if-not (= prev-dependency-op :deject)
             (-> (update component :ow.system/dependencies
                         #(-> (map (fn [[depcn _]]
-                                    (log/debug (str "Dejecting from " name ": " depcn))
+                                    (log/debug (str "Dejecting from " name "#" instance ": " depcn))
                                     depcn)
                                   %)
                              set))
@@ -50,12 +51,14 @@
     (let [op (case op-kw
                :inject inject-dependencies
                :deject deject-dependencies)]
-      (fn [xf]
+      (fn [rf]
         (fn
-          ([]
-           (xf))
-          ([system]
-           (xf system))
-          ([system {:keys [name] :as component}]
+          ([] (rf))
+          ([system] (rf system))
+          ([system {:keys [name ow.system/instance] :as component}]
            (let [resulting-component (op system component)]
-             (xf (assoc-in system [:components name] resulting-component) resulting-component))))))))
+             (rf (assoc-in system [:components name instance] resulting-component) resulting-component))))))))
+
+(defn get-dependency [{:keys [ow.system/dependencies] :as this} name]
+  (-> (get dependencies name)
+      (rand-nth)))

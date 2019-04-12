@@ -4,41 +4,46 @@
             [ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
-(defn init-system [components]
-  ;;; TODO: make this prettier, i.e. use transducers here as well.
-  ;;; TODO: do we need a distinction between init-system & init-component?
-  (letfn [(update-components [system f]
-            (update system :components
-                    #(->> (map (fn [[name component]]
-                                 [name (f name component)])
-                               %)
-                          (into {}))))
-
-          (init-system-component-names [system]
-            (update-components system (fn [name component]
-                                        (assoc component :name name))))]
-
-    (let [init-system-fn     (comp srl/init-system
-                                   sd/init-system
-                                   init-system-component-names)
-          init-components-fn (fn [system]
-                               (let [init-fn (fn [name component]
-                                               ((comp srl/init-component)
-                                                component))]
-                                 (update-components system init-fn)))]
-
-      (->> {:components components}
-           init-system-fn
-           init-components-fn))))
-
-(letfn [(lookup-component-xf [xf]
+(letfn [(init-component-names-xf [rf]
           (fn
-            ([]
-             (xf))
-            ([system]
-             (xf system))
+            ([] (rf))
+            ([system] (rf system))
+            ([system [name component]]
+             (let [component (assoc component :name name)]
+               (rf (assoc-in system [:components name] component) component)))))
+
+        (init-instance-pools-xf [rf]
+          (fn
+            ([] (rf))
+            ([system] (rf system))
+            ([system {:keys [name ow.system/instances] :as component}]
+             (let [components (reduce (fn [components i]
+                                        (conj components (-> component
+                                                             (assoc :ow.system/instance i)
+                                                             (dissoc :ow.system/instances))))
+                                      [] (range (or instances 1)))
+                   system (assoc-in system [:components name] components)]
+               (rf system components)))))]
+
+  (defn init-system [components]
+    (transduce (comp init-component-names-xf
+                     sd/init-dependencies-xf
+                     srl/init-request-response-channels-xf
+                     srl/init-lifecycle-xf
+                     init-instance-pools-xf)
+               (fn [& [system component]]
+                 system)
+               {:components components} components)))
+
+
+(letfn [(lookup-component-xf [rf]
+          (fn
+            ([] (rf))
+            ([system] (rf system))
             ([system component-name]
-             (xf system (get-in system [:components component-name])))))]
+             (reduce (fn [system component]
+                       (rf system component))
+                     system (get-in system [:components component-name])))))]
 
   (defn start-system [{:keys [start-order] :as system}]
     (transduce (comp lookup-component-xf
@@ -58,52 +63,56 @@
 
 
 
-#_(let [components {:c1 {:lifecycles [{:start (fn [this]
-                                              (println "START C1")
-                                              this)
-                                     :stop   (fn [this]
-                                               (println "STOP C1")
-                                               this)}]
-                       :config {:foo (System/getenv "FOO")}}
+#_(let [components {:c1 {:ow.system/lifecycles [{:start (fn [this]
+                                                        (println "START C1")
+                                                        this)
+                                               :stop   (fn [this]
+                                                         (println "STOP C1")
+                                                         this)}]
+                       :ow.system/instances 3}
 
-                  :c2 {:lifecycles [{:start (fn [this]
-                                              (println "START C2")
-                                              (println "  C2 DEPENDS ON C1:" (some-> this :dependencies :c1 :name))
-                                              this)
-                                     :stop (fn [this]
-                                             (println "STOP C2")
-                                             this)}]
-                       :config {:bar (System/getenv "BAR")}
-                       :dependencies #{:c1}}
+                  :c2 {:ow.system/lifecycles [{:start (fn [this]
+                                                        (println "START C2")
+                                                        (println "  C2 DEPENDS ON C1:" (some->> this :ow.system/dependencies :c1
+                                                                                                (map (fn [{:keys [name ow.system/instance]}]
+                                                                                                       (str name "#" instance)))))
+                                                        this)
+                                               :stop (fn [this]
+                                                       (println "STOP C2")
+                                                       this)}]
+                       :ow.system/dependencies #{:c1}
+                       :ow.system/instances 2}
 
-                  :c3 {:request-listener {:topic :foo1
-                                          :handler (fn [this request]
-                                                     (println "RECEIVED REQUEST C3" request))}
-                       :lifecycles [{:start (fn [this]
-                                              (println "START C3")
-                                              (println "  C3 DEPENDS ON C4:" (some-> this :dependencies :c4 :name))
-                                              this)
-                                     :stop (fn [this]
-                                             (println "STOP C3")
-                                             this)}]
-                       :dependencies #{:c4}}
+                  :c3 {:ow.system/request-listener {:topic :foo1
+                                                    :handler (fn [this request]
+                                                               (println "RECEIVED REQUEST C3" request))}
+                       :ow.system/lifecycles [{:start (fn [this]
+                                                        (println "START C3")
+                                                        (println "  C3 DEPENDS ON C4:" (some->> this :ow.system/dependencies :c4
+                                                                                                (map (fn [{:keys [name ow.system/instance]}]
+                                                                                                       (str name "#" instance)))))
+                                                        this)
+                                               :stop (fn [this]
+                                                       (println "STOP C3")
+                                                       this)}]
+                       :ow.system/dependencies #{:c4}}
 
-                  :c4 {:request-listener {:topic :foo2
-                                          :handler (fn [this request]
-                                                     (println "RECEIVED REQUEST C4" request))}
-                       :lifecycles [{:start (fn [this]
-                                              (println "START C4")
-                                              this)
-                                     :stop (fn [this]
-                                             (println "STOP C4")
-                                             this)}]}
+                  :c4 {:ow.system/request-listener {:topic :foo2
+                                                    :handler (fn [this request]
+                                                               (println "RECEIVED REQUEST C4" request))}
+                       :ow.system/lifecycles [{:start (fn [this]
+                                                        (println "START C4")
+                                                        this)
+                                               :stop (fn [this]
+                                                       (println "STOP C4")
+                                                       this)}]}
 
-                  :c5 {:lifecycles [{:start (fn [this]
-                                              (println "START C5")
-                                              this)
-                                     :stop (fn [this]
-                                             (println "STOP C5")
-                                             this)}]}}]
+                  :c5 {:ow.system/lifecycles [{:start (fn [this]
+                                                        (println "START C5")
+                                                        this)
+                                               :stop (fn [this]
+                                                       (println "STOP C5")
+                                                       this)}]}}]
 
   (-> components
       init-system
