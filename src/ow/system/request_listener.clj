@@ -1,12 +1,13 @@
 (ns ow.system.request-listener
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [ow.system.util :as osu]))
 
 (def ^:private ^:dynamic *request-map* {})
 
 (defn- trace-info [this]
   (-> (select-keys *request-map* #{:id :flowid})
-      (assoc :name (:ow.system/name this))))
+      (assoc :name (osu/worker-name this))))
 
 (defn- trace-request [this msg]
   (log/trace (trace-info this) msg))
