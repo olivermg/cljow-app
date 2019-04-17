@@ -1,6 +1,7 @@
 (ns ow.system.request-listener
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]
+            [ow.clojure :as owclj]
             [ow.system.util :as osu]))
 
 (def ^:private ^:dynamic *request-map* {})
@@ -9,8 +10,8 @@
   (-> (select-keys *request-map* #{:id :flowid})
       (assoc :name (osu/worker-name this))))
 
-(defn- trace-request [this msg]
-  (log/trace (trace-info this) msg))
+(defn- trace-request [this msg & msgs]
+  (log/trace (trace-info this) (apply str msg (interleave (repeat " ") msgs))))
 
 (defn init-request-response-channels-xf [rf]
   (let [out-ch  (a/chan)
@@ -31,32 +32,69 @@
          (rf system component))))))
 
 (defn init-lifecycle-xf [rf]
-  (letfn [(run-loop [{{:keys [handler]} :ow.system/request-listener :as this} in-ch]
-            (a/go-loop [{:keys [request response-ch] :as request-map} (a/<! in-ch)]
+  (letfn [(handle-exception [this e & [try]]
+            (log/debug "FAILED to invoke handler"
+                       {:error-message (str e)
+                        :trace-info    (trace-info this)
+                        :try           (or try :last)}))
+
+          (default-retry-delay-fn [n]
+            (let [n      (inc n)
+                  cap    (* 30 60 1000)
+                  msec   (* (Math/log10 n)
+                            (* n n)
+                            1000)
+                  msec   (min msec cap)
+                  varpct (* (/ msec 100)
+                            10)
+                  varrnd (- (rand-int varpct)
+                            (/ varpct 2))]
+              (int (+ msec varrnd))))
+
+          (invoke-handler-safely [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
+                                  {:keys [request response-ch] :as request-map}]
+            (let [retry-count    (or (and (not response-ch) retry-count) 1)
+                  retry-delay-fn (or retry-delay-fn default-retry-delay-fn)]
+              (try
+                (owclj/try-times retry-count
+                                 (fn [try]
+                                   (trace-request this "invoking handler, try" try)
+                                   (handler this request))
+                                 :interleave-f (fn [e try]
+                                                 (handle-exception this e try)
+                                                 (let [delay (retry-delay-fn try)
+                                                       p     (promise)]
+                                                   (a/go
+                                                     (a/<! (a/timeout delay))
+                                                     (deliver p true))
+                                                   p)))
+                (catch Exception e
+                  (handle-exception this e)
+                  e)
+                (catch Error e
+                  (handle-exception this e)
+                  e))))
+
+          (apply-handler-and-respond [this {:keys [response-ch] :as request-map}]
+            (let [response (invoke-handler-safely this request-map)]
+              (cond
+                ;;; 1. if caller is waiting for a response, return response to it, regardless of if it's an exception or not:
+                response-ch                    (do (trace-request this "sending back handler's response")
+                                                   (a/put! response-ch response))
+                ;;; 2. if nobody is waiting for our response, throw exceptions:
+                (instance? Throwable response) (do (trace-request this "throwing handler's exception")
+                                                   (throw response))
+                ;;; 3. if nobody is waiting for our response, simply evaluate to regular responses:
+                true                           (do (trace-request this "discarding handler's response")
+                                                   response))))
+
+          (run-loop [this in-ch]
+            (a/go-loop [request-map (a/<! in-ch)]
               (if-not (nil? request-map)
                 (do (binding [*request-map* request-map]
                       #_(trace-request this "received request-map")
                       (future
-                        (let [handle-exception (fn handle-exception [e]
-                                                 (log/debug "FAILED to invoke handler"
-                                                            {:error-message (str e)
-                                                             :trace-info    (trace-info this)}))
-                              response (try
-                                         (trace-request this "invoking handler")
-                                         (handler this request)
-                                         (catch Exception e
-                                           (handle-exception e)
-                                           e)
-                                         (catch Error e
-                                           (handle-exception e)
-                                           e))]
-                          (cond
-                            response-ch                    (do (trace-request this "sending back handler's response")
-                                                               (a/put! response-ch response))
-                            (instance? Throwable response) (do (trace-request this "throwing handler's exception")
-                                                               (throw response))
-                            true                           (do (trace-request this "discarding handler's response")
-                                                               response)))))
+                        (apply-handler-and-respond this request-map)))
                     (recur (a/<! in-ch))))))
 
           (make-lifecycle [system component-name]
