@@ -4,6 +4,8 @@
             [ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
+;;; TODO: create spec for components definition
+
 (letfn [(init-component-names-xf [rf]
           (fn
             ([] (rf))
@@ -84,9 +86,10 @@
                        :ow.system/dependencies #{:c1}
                        :ow.system/instances 2}
 
-                  :c3 {:ow.system/request-listener {:topic :foo1
-                                                    :handler (fn [this request]
-                                                               (println "RECEIVED REQUEST C3" request))}
+                  :c3 {:ow.system/request-listener {:topic       :foo1
+                                                    :handler     (fn [this request]
+                                                                   (println "RECEIVED REQUEST C3" request))
+                                                    :retry-count 3}
                        :ow.system/lifecycles [{:start (fn [this]
                                                         (println "START C3")
                                                         (println "  C3 DEPENDS ON C4:" (some->> this :ow.system/dependencies :c4

@@ -4,6 +4,8 @@
             [ow.clojure :as owclj]
             [ow.system.util :as osu]))
 
+;;; TODO: implement spec'd requests/events
+
 (def ^:private ^:dynamic *request-map* {})
 
 (defn- trace-info [this]
@@ -116,6 +118,7 @@
          (rf (assoc-in system [:components name :workers instance] component) component))))))
 
 (defn emit [{:keys [ow.system/requester] :as this} topic request]
+  ;;; TODO: do we need an option to specify retry-count per event?
   (let [{:keys [out-ch]} requester
         event-map {:id      (rand-int Integer/MAX_VALUE)
                    :flowid  (get *request-map* :flowid
