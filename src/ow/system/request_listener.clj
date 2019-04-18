@@ -160,7 +160,7 @@
 
 
 ;;; sample config:
-#_{:ca {:ow.system/request-listener {:input-signals  #{:request}
+#_{:ca {:ow.system/request-listener {:input-signals  #{:a}
                                    :input-spec     :tbd
                                    :output-spec    :tbd
                                    :handler        (fn [this req]
@@ -178,3 +178,30 @@
  :cd {:ow.system/request-listener {:input-signals  #{:d1 :d2}
                                    :handler        (fn [this req]
                                                      (println "done"))}}}
+
+#_(letfn [(xf [rf]
+          (let [signals {:a  {:input-signals #{:a}
+                              :component     :ca}
+                         :b  {:input-signals #{:b}
+                              :component     :cb}
+                         :c  {:input-signals #{:c}
+                              :component     :cc}
+                         :d1 {:input-signals #{:d1 :d2}
+                              :component    :cd}
+                         :d2 {:input-signals #{:d1 :d2}
+                              :component    :cd}}]
+            (fn
+              ([] (rf))
+              ([id-map] (rf id-map))
+              ([id-map input]
+               (println id-map input)
+               (rf id-map input)))))]
+  (transduce xf (fn [& [id-map input]]
+                  id-map)
+             {}
+             [#_{:id 11 :signal :a}
+              {:id 22 :signal :a}
+              #_{:id 11 :signal :b}
+              {:id 22 :signal :c}
+              {:id 22 :signal :b}
+              #_{:id 11 :signal :c}]))

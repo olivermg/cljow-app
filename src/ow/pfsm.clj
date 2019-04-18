@@ -25,7 +25,7 @@
 
 #_[:a #{:b :c} :d]
 
-(let [pfsm-def [:a #{:b :c} :d]]
+#_(let [pfsm-def [:a #{:b :c} :d]]
   (letfn [(xf [rf]
             (fn
               ([] (rf))
