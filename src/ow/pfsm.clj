@@ -47,9 +47,9 @@
                     (println "  " pfsms input)
                     pfsms)
                {}
-               [{:id 11 :signal :a}
+               [#_{:id 11 :signal :a}
                 {:id 22 :signal :a}
-                {:id 11 :signal :b}
+                #_{:id 11 :signal :b}
                 {:id 22 :signal :c}
                 {:id 22 :signal :b}
-                {:id 11 :signal :c}])))
+                #_{:id 11 :signal :c}])))
