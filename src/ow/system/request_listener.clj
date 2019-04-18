@@ -156,3 +156,25 @@
         (if-not (instance? Throwable response)
           response
           (throw response))))))
+
+
+
+;;; sample config:
+#_{:ca {:ow.system/request-listener {:input-signals  [:request]
+                                   :input-spec     :tbd
+                                   :output-spec    :tbd
+                                   :handler        (fn [this req]
+                                                     (emit this :b {})
+                                                     (emit this :c {}))}}
+
+ :cb {:ow.system/request-listener {:input-signals  [:b]
+                                   :handler        (fn [this req]
+                                                     (emit this :d1 {}))}}
+
+ :cc {:ow.system/request-listener {:input-signals  [:c]
+                                   :output-signals [:d2]
+                                   :handler        (fn [this req])}}
+
+ :cd {:ow.system/request-listener {:input-signals  [:d1 :d2]
+                                   :handler        (fn [this req]
+                                                     (println "done"))}}}
