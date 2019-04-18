@@ -175,6 +175,6 @@
                                    :output-signals [:d2]
                                    :handler        (fn [this req])}}
 
- :cd {:ow.system/request-listener {:input-signals  [:d1 :d2]
+ :cd {:ow.system/request-listener {:input-signals  [:and :d1 :d2]
                                    :handler        (fn [this req]
                                                      (println "done"))}}}
