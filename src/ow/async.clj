@@ -15,9 +15,9 @@
                      (vswap! t-map update id #(assoc % topic input))
                      (println "STATE" @t-map)
                      (let [pending-msgs (get @t-map id)]
-                       (if (= (-> pending-msgs keys set) topics)
-                         (do (vswap! t-map dissoc id)
-                             (rf result pending-msgs))))))))))]
+                       (when (= (-> pending-msgs keys set) topics)
+                         (vswap! t-map dissoc id)
+                         (rf result pending-msgs)))))))))]
     (let [ch (a/chan)
           p  (a/pub ch :topic)
           s1 (a/sub p :a (a/chan))
