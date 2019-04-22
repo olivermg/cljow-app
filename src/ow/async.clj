@@ -16,7 +16,7 @@
                   (let [pending-msgs (get @t-map id)]
                     (if (= (-> pending-msgs keys set) ts)
                       (do (vswap! t-map dissoc id)
-                          (rf result input))))))))
+                          (rf result pending-msgs))))))))
         ch (a/chan)
         p  (a/pub ch :topic)
         s1 (a/sub p :a (a/chan))
