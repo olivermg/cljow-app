@@ -13,11 +13,23 @@
       (a/pipeline 1 ch xf sub)))
   ch)
 
-(defn partition
-  "TBD"
-  [ch partition-fn n]
-  (let [chans (repeatedly n a/chan)]
-    ))
+(defn dispatch
+  "Dispatches messsages incoming from ch to chs. chs must be a collection of
+  channels. Feeds an incoming message into dispatch-fn, determines a dispatch
+  id from it's return value and forwards the message into the channel in chs
+  that represents this \"partition\".
+
+  Useful to dispatch messages with same dispatch value always to the same
+  channel (e.g. stateful worker)."
+  [ch dispatch-fn chs]
+  (let [n   (count chs)
+        pub (a/pub ch #(-> % dispatch-fn hash (mod n)))]
+    (loop [[outch & outchs] chs
+           i                0]
+      (when (< i n)
+        (a/sub pub i outch)
+        (recur outchs (inc i))))
+    chs))
 
 (defn chunking-sub
   "Subscribes to pub p on topics. Aggregates incoming messages into the form of a map,
