@@ -41,8 +41,9 @@
   with messages for all specified topics.
 
   :parallelism determines the number of workers, defaulting to 1."
-  [p topics ch chunk-fn & {:keys [parallelism]}]
+  [p topics ch chunk-fn & {:keys [merge-fn parallelism]}]
   (let [topics      (set topics)
+        merge-fn    (or merge-fn identity)
         parallelism (or parallelism 1)
         state-map   (ref {})  ;; NOTE: need to manage state here (outside of xf), for when parallelism > 1
         ]
@@ -62,7 +63,7 @@
                         (alter state-map dissoc chunk)
                         (vreset! forward-msgs pending-msgs))))
                    (when @forward-msgs
-                     (rf result @forward-msgs))))))]
+                     (rf result (merge-fn @forward-msgs)))))))]
       (let [jsub (joining-sub p topics (a/chan))]
         (a/pipeline parallelism ch joining-xf jsub))
       ch)))
@@ -73,6 +74,8 @@
   (let [ch (a/chan)
         p  (a/pub ch :topic)
         s  (chunking-sub p #{:a :b} (a/chan) :id
+                         :merge-fn (fn [{:keys [a b]}]
+                                     (merge a b))
                          :parallelism 4)]
     (a/go-loop [msg (a/<! s)]
       (if-not (nil? msg)
@@ -80,8 +83,8 @@
             (recur (a/<! s)))
         (println "QUIT")))
     ch))
-#_(a/put! ch {:topic :a :id 11})
-#_(a/put! ch {:topic :b :id 11})
-#_(a/put! ch {:topic :a :id 22})
-#_(a/put! ch {:topic :b :id 22})
+#_(a/put! ch {:topic :a :id 11 :a :a1})
+#_(a/put! ch {:topic :b :id 11 :b :b1})
+#_(a/put! ch {:topic :a :id 22 :a :a2})
+#_(a/put! ch {:topic :b :id 22 :b :b2})
 #_(a/close! ch)
