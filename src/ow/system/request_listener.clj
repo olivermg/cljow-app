@@ -29,7 +29,10 @@
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
                                                    in-pub (a/pub in-tap topic-fn)]
-                                               #_(owa/chunking-sub in-pub #{topic} (a/chan) :flowid)
+                                               #_(owa/chunking-sub in-pub #{topic} (a/chan) :flowid
+                                                                 :merge-fn (fn [{v1 topic}]
+                                                                             (println "got:" topic v1)
+                                                                             v1))
                                                (a/sub in-pub topic (a/chan))))))
                          system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
