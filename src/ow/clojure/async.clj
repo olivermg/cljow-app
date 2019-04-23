@@ -1,4 +1,5 @@
-(ns ow.async
+(ns ow.clojure.async
+  (:refer-clojure :rename {partition partition-clj})
   (:require [clojure.core.async :as a]))
 
 (defn partition
@@ -45,7 +46,7 @@
 
 
 
-(def ch
+#_(def ch
   (let [ch (a/chan)
         p  (a/pub ch :topic)
         s  (joining-sub p #{:a :b} (a/chan) :id
@@ -56,8 +57,8 @@
             (recur (a/<! s)))
         (println "QUIT")))
     ch))
-(a/put! ch {:topic :a :id 11})
-(a/put! ch {:topic :b :id 11})
-(a/put! ch {:topic :a :id 22})
-(a/put! ch {:topic :b :id 22})
-(a/close! ch)
+#_(a/put! ch {:topic :a :id 11})
+#_(a/put! ch {:topic :b :id 11})
+#_(a/put! ch {:topic :a :id 22})
+#_(a/put! ch {:topic :b :id 22})
+#_(a/close! ch)
