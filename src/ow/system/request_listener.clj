@@ -9,8 +9,29 @@
 
 (def ^:private ^:dynamic *request-map* {})
 
+(defn- unify-request-map [request-map]
+  (let [{:keys [flowids] :as unified} (reduce (fn [unified [topic {:keys [id flowid] :as request}]]
+                                                (-> unified
+                                                    (update :flowids conj flowid)
+                                                    (update :ids conj id)))
+                                              {:flowids #{}
+                                               :ids     #{}}
+                                              request-map)]
+    (when-not (= (count flowids) 1)
+      (log/warn "multiple flowids detected within a single request-map"
+                {:request-map *request-map*
+                 :unified     unified}))
+    unified))
+
+(defn- unify-current-request-map []
+  (unify-request-map *request-map*))
+
+(defn- current-flowid []
+  (or (some-> (unify-current-request-map) :flowids first)
+      (rand-int (Integer/MAX_VALUE))))
+
 (defn- trace-info [this]
-  (-> (select-keys *request-map* #{:id :flowid})
+  (-> (unify-current-request-map)
       (assoc :name (osu/worker-name this))))
 
 (defn- trace-request [this msg & msgs]
@@ -29,11 +50,11 @@
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
                                                    in-pub (a/pub in-tap topic-fn)]
-                                               #_(owa/chunking-sub in-pub #{topic} (a/chan) :flowid
-                                                                 :merge-fn (fn [{v1 topic}]
+                                               (owa/chunking-sub in-pub #{topic} (a/chan) :flowid
+                                                                 #_:merge-fn #_(fn [{v1 topic}]
                                                                              (println "got:" topic v1)
                                                                              v1))
-                                               (a/sub in-pub topic (a/chan))))))
+                                               #_(a/sub in-pub topic (a/chan))))))
                          system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
              system    (assoc-in system [:components name :workers instance] component)]
@@ -128,11 +149,10 @@
   ;;; TODO: do we need an option to specify retry-count per event?
   (let [{:keys [out-ch]} requester
         event-map {:id      (rand-int Integer/MAX_VALUE)
-                   :flowid  (get *request-map* :flowid
-                                 (rand-int Integer/MAX_VALUE))
+                   :flowid  (current-flowid)
                    :topic   topic
                    :request request}]
-    (binding [*request-map* event-map]
+    (binding [*request-map* {topic event-map}]
       (trace-request this "emitting event-map")
       (a/put! out-ch event-map))))
 
@@ -140,8 +160,7 @@
   (let [{:keys [out-ch]} requester
         response-ch (a/promise-chan)
         request-map {:id          (rand-int Integer/MAX_VALUE)
-                     :flowid      (get *request-map* :flowid
-                                       (rand-int Integer/MAX_VALUE))
+                     :flowid      (current-flowid)
                      :topic       topic
                      :request     request
                      :response-ch response-ch}
@@ -155,7 +174,7 @@
                                                                     :request request}))
                           (ex-info "timeout while waiting for response" {:trace-info (trace-info this)
                                                                          :request request}))))]
-    (binding [*request-map* request-map]
+    (binding [*request-map* {topic request-map}]
       (trace-request this "requesting request-map")
       (a/put! out-ch request-map)
       (let [response (a/<!! receipt)]
@@ -166,32 +185,32 @@
 
 
 
-#_(let [cfg {:ca {:ow.system/request-listener {:topic          :a
+(let [cfg {:ca {:ow.system/request-listener {:topic          :a
                                              :topics         #{:a}
                                              :input-spec     :tbd
                                              :output-spec    :tbd
-                                             :handler        (fn [this req]
-                                                               (println "ca got msg" req)
+                                             :handler        (fn [this {:keys [a] :as request-map}]
+                                                               (println "ca got msg" a request-map)
                                                                (emit this :b {:bdata 1})
                                                                (emit this :c {:cdata 1}))}}
 
            :cb {:ow.system/request-listener {:topic          :b
                                              :topics         #{:b}
-                                             :handler        (fn [this req]
-                                                               (println "cb got msg" req)
+                                             :handler        (fn [this {:keys [b] :as request-map}]
+                                                               (println "cb got msg" b request-map)
                                                                (emit this :d1 {:d1data 1}))}}
 
            :cc {:ow.system/request-listener {:topic          :c
                                              :topics         #{:c}
                                              :output-signals [:d2]
-                                             :handler        (fn [this req]
-                                                               (println "cc got msg" req)
+                                             :handler        (fn [this {:keys [c] :as request-map}]
+                                                               (println "cc got msg" c request-map)
                                                                #_(emit this :d2 {:d2data 1}))}}
 
            :cd {:ow.system/request-listener {:topic          :d1
                                              :topics         #{:d1 :d2}
-                                             :handler        (fn [this req]
-                                                               (println "cd got msg" req))}}}
+                                             :handler        (fn [this {:keys [d1 d2] :as request-map}]
+                                                               (println "cd got msg" d1 d2 request-map))}}}
       system (-> (ow.system/init-system cfg)
                  (ow.system/start-system))
       ca     (get-in system [:components :ca :workers 0])]
