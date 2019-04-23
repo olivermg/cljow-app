@@ -24,10 +24,11 @@
       ([system] (rf system))
       ([system {:keys [ow.system/name ow.system/instance ow.system/request-listener] :as component}]
        (let [system    (if request-listener
-                         (let [{:keys [topic-fn topic]} request-listener]
+                         (let [{:keys [topic-fn topic]} request-listener
+                               topic-fn (or topic-fn :topic)]
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
-                                                   in-pub (a/pub in-tap (or topic-fn :topic))]
+                                                   in-pub (a/pub in-tap topic-fn)]
                                                #_(owa/chunking-sub in-pub #{topic} (a/chan) :flowid)
                                                (a/sub in-pub topic (a/chan))))))
                          system)
@@ -128,8 +129,8 @@
                    :topic   topic
                    :request request}]
     (binding [*request-map* event-map]
-      (trace-request this "emitting event-map"))
-    (a/put! out-ch event-map)))
+      (trace-request this "emitting event-map")
+      (a/put! out-ch event-map))))
 
 (defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
   (let [{:keys [out-ch]} requester
@@ -161,49 +162,35 @@
 
 
 
-;;; sample config:
-#_{:ca {:ow.system/request-listener {:topics  #{:a}
-                                   :input-spec     :tbd
-                                   :output-spec    :tbd
-                                   :handler        (fn [this req]
-                                                     (emit this :b {})
-                                                     (emit this :c {}))}}
+#_(let [cfg {:ca {:ow.system/request-listener {:topic          :a
+                                             :topics         #{:a}
+                                             :input-spec     :tbd
+                                             :output-spec    :tbd
+                                             :handler        (fn [this req]
+                                                               (println "ca got msg" req)
+                                                               (emit this :b {:bdata 1})
+                                                               (emit this :c {:cdata 1}))}}
 
- :cb {:ow.system/request-listener {:topics  #{:b}
-                                   :handler        (fn [this req]
-                                                     (emit this :d1 {}))}}
+           :cb {:ow.system/request-listener {:topic          :b
+                                             :topics         #{:b}
+                                             :handler        (fn [this req]
+                                                               (println "cb got msg" req)
+                                                               (emit this :d1 {:d1data 1}))}}
 
- :cc {:ow.system/request-listener {:topics  #{:c}
-                                   :output-signals [:d2]
-                                   :handler        (fn [this req])}}
+           :cc {:ow.system/request-listener {:topic          :c
+                                             :topics         #{:c}
+                                             :output-signals [:d2]
+                                             :handler        (fn [this req]
+                                                               (println "cc got msg" req)
+                                                               #_(emit this :d2 {:d2data 1}))}}
 
- :cd {:ow.system/request-listener {:topics  #{:d1 :d2}
-                                   :handler        (fn [this req]
-                                                     (println "done"))}}}
-
-#_(letfn [(xf [rf]
-          (let [signals {:a  {:signals #{:a}
-                              :component     :ca}
-                         :b  {:signals #{:b}
-                              :component     :cb}
-                         :c  {:signals #{:c}
-                              :component     :cc}
-                         :d1 {:signals #{:d1 :d2}
-                              :component    :cd}
-                         :d2 {:signals #{:d1 :d2}
-                              :component    :cd}}]
-            (fn
-              ([] (rf))
-              ([id-map] (rf id-map))
-              ([id-map input]
-               (println id-map input)
-               (rf id-map input)))))]
-  (transduce xf (fn [& [id-map input]]
-                  id-map)
-             {}
-             [#_{:id 11 :signal :a}
-              {:id 22 :signal :a}
-              #_{:id 11 :signal :b}
-              {:id 22 :signal :c}
-              {:id 22 :signal :b}
-              #_{:id 11 :signal :c}]))
+           :cd {:ow.system/request-listener {:topic          :d1
+                                             :topics         #{:d1 :d2}
+                                             :handler        (fn [this req]
+                                                               (println "cd got msg" req))}}}
+      system (-> (ow.system/init-system cfg)
+                 (ow.system/start-system))
+      ca     (get-in system [:components :ca :workers 0])]
+  (emit ca :a {:adata 1})
+  (Thread/sleep 1000)
+  (ow.system/stop-system system))
