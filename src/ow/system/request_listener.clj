@@ -2,6 +2,7 @@
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :as log]
             [ow.clojure :as owclj]
+            [ow.clojure.async :as owa]
             [ow.system.util :as osu]))
 
 ;;; TODO: implement spec'd requests/events
@@ -27,6 +28,7 @@
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
                                                    in-pub (a/pub in-tap (or topic-fn :topic))]
+                                               #_(owa/chunking-sub in-pub #{topic} (a/chan) :flowid)
                                                (a/sub in-pub topic (a/chan))))))
                          system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
@@ -160,35 +162,35 @@
 
 
 ;;; sample config:
-#_{:ca {:ow.system/request-listener {:input-signals  #{:a}
+#_{:ca {:ow.system/request-listener {:topics  #{:a}
                                    :input-spec     :tbd
                                    :output-spec    :tbd
                                    :handler        (fn [this req]
                                                      (emit this :b {})
                                                      (emit this :c {}))}}
 
- :cb {:ow.system/request-listener {:input-signals  #{:b}
+ :cb {:ow.system/request-listener {:topics  #{:b}
                                    :handler        (fn [this req]
                                                      (emit this :d1 {}))}}
 
- :cc {:ow.system/request-listener {:input-signals  #{:c}
+ :cc {:ow.system/request-listener {:topics  #{:c}
                                    :output-signals [:d2]
                                    :handler        (fn [this req])}}
 
- :cd {:ow.system/request-listener {:input-signals  #{:d1 :d2}
+ :cd {:ow.system/request-listener {:topics  #{:d1 :d2}
                                    :handler        (fn [this req]
                                                      (println "done"))}}}
 
 #_(letfn [(xf [rf]
-          (let [signals {:a  {:input-signals #{:a}
+          (let [signals {:a  {:signals #{:a}
                               :component     :ca}
-                         :b  {:input-signals #{:b}
+                         :b  {:signals #{:b}
                               :component     :cb}
-                         :c  {:input-signals #{:c}
+                         :c  {:signals #{:c}
                               :component     :cc}
-                         :d1 {:input-signals #{:d1 :d2}
+                         :d1 {:signals #{:d1 :d2}
                               :component    :cd}
-                         :d2 {:input-signals #{:d1 :d2}
+                         :d2 {:signals #{:d1 :d2}
                               :component    :cd}}]
             (fn
               ([] (rf))
