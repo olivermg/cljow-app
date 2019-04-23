@@ -2,46 +2,57 @@
   (:refer-clojure :rename {partition partition-clj})
   (:require [clojure.core.async :as a]))
 
+(defn joining-sub
+  "Subscribes to topics on pub p. On receiving a message, forwards it to ch
+  in the form of a 2-tuple vector [topic message]."
+  [p topics ch]
+  (doseq [topic topics]
+    (let [xf  (map (fn [msg]
+                     [topic msg]))
+          sub (a/sub p topic (a/chan))]
+      (a/pipeline 1 ch xf sub)))
+  ch)
+
 (defn partition
   "TBD"
-  [ch partitioning-fn n]
+  [ch partition-fn n]
   (let [chans (repeatedly n a/chan)]
     ))
 
+(defn chunking-sub
+  "Subscribes to pub p on topics. Aggregates incoming messages into the form of a map,
+  e.g. {topic1 message1, topic2 message2}. Different instances of such maps are being
+  identified via applying chunk-fn upon a message.
 
-(defn joining-sub
-  "Subscribes to pub p on topics. Groups incoming messages via group-fn.
-  Forwards messages to ch groupwise after messages for all topics within a group
-  have arrived, i.e. joins the messages of all topics together before forwarding
-  them to ch.
+  Forwards chunk-maps to ch after messages for all topics within a chunk
+  have arrived, i.e. delays all incoming messages until a chunk-map can be completed
+  with messages for all specified topics.
 
-  Joined messages are being forwarded to ch in the form of a map, the specific
-  topic being the key.
-
-  :parallelism determines the number of workers per topic, defaulting to 1."
-  [p topics ch group-fn & {:keys [parallelism]}]
+  :parallelism determines the number of workers, defaulting to 1."
+  [p topics ch chunk-fn & {:keys [parallelism]}]
   (let [topics      (set topics)
         parallelism (or parallelism 1)
-        state-ref   (ref {})  ;; TODO: can we improve this (as it serializes processing)
+        state-map   (ref {})  ;; NOTE: need to manage state here (outside of xf), for when parallelism > 1
         ]
-    (letfn [(make-joining-xf [topic]
-              (fn [rf]
-                (fn
-                  ([]       (rf))
-                  ([result] (rf result))
-                  ([result input]
-                   (let [group (group-fn input)]
-                     (dosync
-                      (alter state-ref update group #(assoc % topic input))
-                      (let [pending-msgs (get @state-ref group)]
-                        (when (= (-> pending-msgs keys set)
-                                 topics)
-                          (alter state-ref dissoc group)
-                          (rf result pending-msgs)))))))))]
-      (doseq [topic topics]
-        (let [sub (a/sub p topic (a/chan))
-              xf  (make-joining-xf topic)]
-          (a/pipeline parallelism ch xf sub)))
+    (letfn [(joining-xf [rf]
+              (fn
+                ([]       (rf))
+                ([result] (rf result))
+                ([result [topic message :as input]]
+                 (let [chunk        (chunk-fn message)
+                       forward-msgs (volatile! nil)]
+                   (dosync
+                    (let [pending-msgs (-> state-map
+                                           (alter update chunk #(assoc % topic message))
+                                           (get chunk))]
+                      (when (= (-> pending-msgs keys set)
+                               topics)
+                        (alter state-map dissoc chunk)
+                        (vreset! forward-msgs pending-msgs))))
+                   (when @forward-msgs
+                     (rf result @forward-msgs))))))]
+      (let [jsub (joining-sub p topics (a/chan))]
+        (a/pipeline parallelism ch joining-xf jsub))
       ch)))
 
 
@@ -49,8 +60,8 @@
 #_(def ch
   (let [ch (a/chan)
         p  (a/pub ch :topic)
-        s  (joining-sub p #{:a :b} (a/chan) :id
-                        :parallelism 4)]
+        s  (chunking-sub p #{:a :b} (a/chan) :id
+                         :parallelism 4)]
     (a/go-loop [msg (a/<! s)]
       (if-not (nil? msg)
         (do (println "MSG" msg)
