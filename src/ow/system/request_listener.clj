@@ -56,8 +56,8 @@
                             (/ varpct 2))]
               (int (+ msec varrnd))))
 
-          (invoke-handler-safely [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
-                                  {:keys [request response-ch] :as request-map}]
+          (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
+                          {:keys [request response-ch] :as request-map}]
             (let [retry-count    (or (and (not response-ch) retry-count) 1)
                   retry-delay-fn (or retry-delay-fn default-retry-delay-fn)]
               (try
@@ -80,18 +80,17 @@
                   (handle-exception this e)
                   e))))
 
-          (apply-handler-and-respond [this {:keys [response-ch] :as request-map}]
-            (let [response (invoke-handler-safely this request-map)]
-              (cond
+          (handle-response [this {:keys [response-ch] :as request-map} response]
+            (cond
                 ;;; 1. if caller is waiting for a response, return response to it, regardless of if it's an exception or not:
-                response-ch                    (do (trace-request this "sending back handler's response")
-                                                   (a/put! response-ch response))
+              response-ch                    (do (trace-request this "sending back handler's response")
+                                                 (a/put! response-ch response))
                 ;;; 2. if nobody is waiting for our response, throw exceptions:
-                (instance? Throwable response) (do (trace-request this "throwing handler's exception")
-                                                   (throw response))
+              (instance? Throwable response) (do (trace-request this "throwing handler's exception")
+                                                 (throw response))
                 ;;; 3. if nobody is waiting for our response, simply evaluate to regular responses:
-                true                           (do (trace-request this "discarding handler's response")
-                                                   response))))
+              true                           (do (trace-request this "discarding handler's response")
+                                                 response)))
 
           (run-loop [this in-ch]
             (a/go-loop [request-map (a/<! in-ch)]
@@ -99,7 +98,9 @@
                 (do (binding [*request-map* request-map]
                       #_(trace-request this "received request-map")
                       (future
-                        (apply-handler-and-respond this request-map)))
+                        (->> request-map
+                             (apply-handler this)
+                             (handle-response this request-map))))
                     (recur (a/<! in-ch))))))
 
           (make-lifecycle [system component-name]
