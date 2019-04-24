@@ -45,16 +45,12 @@
       ([system] (rf system))
       ([system {:keys [ow.system/name ow.system/instance ow.system/request-listener] :as component}]
        (let [system    (if request-listener
-                         (let [{:keys [topic-fn topic]} request-listener
-                               topic-fn (or topic-fn :topic)]
+                         (let [{:keys [topic-fn topics]} request-listener
+                               topic-fn                  (or topic-fn :topic)]
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
                                                    in-pub (a/pub in-tap topic-fn)]
-                                               (owa/chunking-sub in-pub #{topic} (a/chan) :flowid
-                                                                 #_:merge-fn #_(fn [{v1 topic}]
-                                                                             (println "got:" topic v1)
-                                                                             v1))
-                                               #_(a/sub in-pub topic (a/chan))))))
+                                               (owa/chunking-sub in-pub topics (a/chan) :flowid)))))
                          system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
              system    (assoc-in system [:components name :workers instance] component)]
@@ -189,33 +185,32 @@
 
 
 
-#_(let [cfg {:ca {:ow.system/request-listener {:topic          :a
-                                             :topics         #{:a}
+#_(let [cfg {:ca {:ow.system/request-listener {:topics         #{:a}
                                              :input-spec     :tbd
                                              :output-spec    :tbd
                                              :handler        (fn [this {:keys [a] :as request-map}]
                                                                (log/warn "ca got msg" a request-map)
-                                                               (Thread/sleep 100)
+                                                               (Thread/sleep 500)
                                                                (emit this :b {:bdata 1})
+                                                               (Thread/sleep 500)
                                                                (emit this :c {:cdata 1}))}}
 
-           :cb {:ow.system/request-listener {:topic          :b
-                                             :topics         #{:b}
+           :cb {:ow.system/request-listener {:topics         #{:b}
                                              :handler        (fn [this {:keys [b] :as request-map}]
                                                                (log/warn "cb got msg" b request-map)
+                                                               (Thread/sleep 500)
                                                                #_(emit this :d1 {:d1data 1})
                                                                (-> (request this :d1 {:d1data 1} :timeout 5000)
                                                                    (doto (println "RRRRRRRRRRRRRRRRRRRRRR"))))}}
 
-           :cc {:ow.system/request-listener {:topic          :c
-                                             :topics         #{:c}
+           :cc {:ow.system/request-listener {:topics         #{:c}
                                              :output-signals [:d2]
                                              :handler        (fn [this {:keys [c] :as request-map}]
                                                                (log/warn "cc got msg" c request-map)
-                                                               #_(emit this :d2 {:d2data 1}))}}
+                                                               (Thread/sleep 1000)
+                                                               (emit this :d2 {:d2data 1}))}}
 
-           :cd {:ow.system/request-listener {:topic          :d1
-                                             :topics         #{:d1 :d2}
+           :cd {:ow.system/request-listener {:topics         #{:d1 :d2}
                                              :handler        (fn [this {:keys [d1 d2] :as request-map}]
                                                                (log/warn "cd got msg" d1 d2 request-map)
                                                                :d1d2response)}}}
@@ -223,5 +218,5 @@
                  (ow.system/start-system))
       ca     (get-in system [:components :ca :workers 0])]
   (emit ca :a {:adata 1})
-  (Thread/sleep 1000)
+  (Thread/sleep 5000)
   (ow.system/stop-system system))
