@@ -9,7 +9,7 @@
 
 (def ^:private ^:dynamic *request-map* {})
 
-(defn- unify-request-map [request-map]
+(defn- request-map-info [request-map]
   (let [{:keys [flowids] :as unified} (reduce (fn [unified [topic {:keys [id flowid] :as request}]]
                                                 (-> unified
                                                     (update :flowids conj flowid)
@@ -23,15 +23,15 @@
                  :unified     unified}))
     unified))
 
-(defn- unify-current-request-map []
-  (unify-request-map *request-map*))
+(defn- current-request-map-info []
+  (request-map-info *request-map*))
 
 (defn- current-flowid []
-  (or (some-> (unify-current-request-map) :flowids first)
+  (or (some-> (current-request-map-info) :flowids first)
       (rand-int (Integer/MAX_VALUE))))
 
 (defn- trace-info [this]
-  (-> (unify-current-request-map)
+  (-> (current-request-map-info)
       (assoc :name (osu/worker-name this))))
 
 (defn- trace-request [this msg & msgs]
@@ -81,14 +81,14 @@
               (int (+ msec varrnd))))
 
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
-                          {:keys [request response-ch] :as request-map}]
-            (let [retry-count    (or (and (not response-ch) retry-count) 1)
+                          request-map]
+            (let [retry-count    (or retry-count 1)
                   retry-delay-fn (or retry-delay-fn default-retry-delay-fn)]
               (try
                 (owclj/try-times retry-count
                                  (fn [try]
                                    (trace-request this "invoking handler, try" try)
-                                   (handler this request))
+                                   (handler this request-map))
                                  :interleave-f (fn [e try]
                                                  (handle-exception this e try)
                                                  (let [delay (retry-delay-fn try)
@@ -104,26 +104,30 @@
                   (handle-exception this e)
                   e))))
 
-          (handle-response [this {:keys [response-ch] :as request-map} response]
-            (cond
-                ;;; 1. if caller is waiting for a response, return response to it, regardless of if it's an exception or not:
-              response-ch                    (do (trace-request this "sending back handler's response")
-                                                 (a/put! response-ch response))
+          (handle-response [this request-map response]
+            (let [response-chs (->> request-map
+                                    vals
+                                    (map :response-ch)
+                                    (remove nil?))]
+              (cond
+                ;;; 1. if caller(s) is/are waiting for a response, return response to it/them, regardless of if it's an exception or not:
+                (not-empty response-chs)       (do (trace-request this "sending back handler's response")
+                                                   (doseq [response-ch response-chs]
+                                                     (a/put! response-ch [response])
+                                                     (a/close! response-ch)))
                 ;;; 2. if nobody is waiting for our response, throw exceptions:
-              (instance? Throwable response) (do (trace-request this "throwing handler's exception")
-                                                 (throw response))
+                (instance? Throwable response) (do (trace-request this "throwing handler's exception")
+                                                   (throw response))
                 ;;; 3. if nobody is waiting for our response, simply evaluate to regular responses:
-              true                           (do (trace-request this "discarding handler's response")
-                                                 response)))
+                true                           (do (trace-request this "discarding handler's response")
+                                                   response))))
 
           (run-loop [this in-ch]
             (a/go-loop [request-map (a/<! in-ch)]
               (if-not (nil? request-map)
                 (do (binding [*request-map* request-map]
-                      #_(trace-request this "received request-map")
                       (future
-                        (->> request-map
-                             (apply-handler this)
+                        (->> (apply-handler this request-map)
                              (handle-response this request-map))))
                     (recur (a/<! in-ch))))))
 
@@ -165,10 +169,10 @@
                      :request     request
                      :response-ch response-ch}
         receipt     (a/go
-                      (let [timeout-ch    (a/timeout (or timeout 30000))
-                            [response ch] (a/alts! [response-ch timeout-ch])]
+                      (let [timeout-ch                             (a/timeout (or timeout 30000))
+                            [[response :as response-container] ch] (a/alts! [response-ch timeout-ch])]
                         (if (= ch response-ch)
-                          (if-not (nil? response)
+                          (if-not (nil? response-container)
                             response
                             (ex-info "response channel was closed" {:trace-info (trace-info this)
                                                                     :request request}))
@@ -185,32 +189,36 @@
 
 
 
-(let [cfg {:ca {:ow.system/request-listener {:topic          :a
+#_(let [cfg {:ca {:ow.system/request-listener {:topic          :a
                                              :topics         #{:a}
                                              :input-spec     :tbd
                                              :output-spec    :tbd
                                              :handler        (fn [this {:keys [a] :as request-map}]
-                                                               (println "ca got msg" a request-map)
+                                                               (log/warn "ca got msg" a request-map)
+                                                               (Thread/sleep 100)
                                                                (emit this :b {:bdata 1})
                                                                (emit this :c {:cdata 1}))}}
 
            :cb {:ow.system/request-listener {:topic          :b
                                              :topics         #{:b}
                                              :handler        (fn [this {:keys [b] :as request-map}]
-                                                               (println "cb got msg" b request-map)
-                                                               (emit this :d1 {:d1data 1}))}}
+                                                               (log/warn "cb got msg" b request-map)
+                                                               #_(emit this :d1 {:d1data 1})
+                                                               (-> (request this :d1 {:d1data 1} :timeout 5000)
+                                                                   (doto (println "RRRRRRRRRRRRRRRRRRRRRR"))))}}
 
            :cc {:ow.system/request-listener {:topic          :c
                                              :topics         #{:c}
                                              :output-signals [:d2]
                                              :handler        (fn [this {:keys [c] :as request-map}]
-                                                               (println "cc got msg" c request-map)
+                                                               (log/warn "cc got msg" c request-map)
                                                                #_(emit this :d2 {:d2data 1}))}}
 
            :cd {:ow.system/request-listener {:topic          :d1
                                              :topics         #{:d1 :d2}
                                              :handler        (fn [this {:keys [d1 d2] :as request-map}]
-                                                               (println "cd got msg" d1 d2 request-map))}}}
+                                                               (log/warn "cd got msg" d1 d2 request-map)
+                                                               :d1d2response)}}}
       system (-> (ow.system/init-system cfg)
                  (ow.system/start-system))
       ca     (get-in system [:components :ca :workers 0])]
