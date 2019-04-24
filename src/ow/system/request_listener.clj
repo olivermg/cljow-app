@@ -79,12 +79,16 @@
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
                           request-map]
             (let [retry-count    (or retry-count 1)
-                  retry-delay-fn (or retry-delay-fn default-retry-delay-fn)]
+                  retry-delay-fn (or retry-delay-fn default-retry-delay-fn)
+                  requests       (->> request-map
+                                      (map (fn [[topic request]]
+                                             [topic (get request :request)]))
+                                      (into {}))]
               (try
                 (owclj/try-times retry-count
                                  (fn [try]
                                    (trace-request this "invoking handler, try" try)
-                                   (handler this request-map))
+                                   (handler this requests))
                                  :interleave-f (fn [e try]
                                                  (handle-exception this e try)
                                                  (let [delay (retry-delay-fn try)
