@@ -58,10 +58,10 @@
 
 (defn init-lifecycle-xf [rf]
   (letfn [(handle-exception [this e & [try]]
-            (log/debug "FAILED to invoke handler"
-                       {:error-message (str e)
-                        :trace-info    (trace-info this)
-                        :try           (or try :last)}))
+            (log/warn "FAILED to invoke handler"
+                      {:error-message (str e)
+                       :trace-info    (trace-info this)
+                       :try           (or try :last)}))
 
           (default-retry-delay-fn [n]
             (let [n      (inc n)
@@ -85,7 +85,7 @@
                                              [topic (get request :request)]))
                                       (into {}))]
               (try
-                (owclj/try-times retry-count
+                (owclj/try-times retry-count  ;; TODO: implement abort (e.g. when system gets shut down)
                                  (fn [try]
                                    (trace-request this "invoking handler, try" try)
                                    (handler this requests))
@@ -97,10 +97,7 @@
                                                      (a/<! (a/timeout delay))
                                                      (deliver p true))
                                                    p)))
-                (catch Exception e
-                  (handle-exception this e)
-                  e)
-                (catch Error e
+                (catch Throwable e
                   (handle-exception this e)
                   e))))
 
@@ -137,8 +134,8 @@
                         (let [in-ch (a/pipe worker-sub (a/chan))]
                           (run-loop this in-ch)
                           (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
-               :stop (fn request-listener-stop [this]
-                       (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}))]
+               :stop  (fn request-listener-stop [this]
+                        (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}))]
 
     (fn
       ([] (rf))
