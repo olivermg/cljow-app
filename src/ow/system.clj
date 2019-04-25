@@ -1,6 +1,7 @@
 (ns ow.system
   (:require [clojure.tools.logging :as log]
             [ow.system.dependencies :as sd]
+            [ow.system.interval-worker :as siw]
             [ow.system.lifecycles :as sl]
             [ow.system.request-listener :as srl]))
 
@@ -33,6 +34,7 @@
                      sd/init-dependencies-xf
                      init-workers-xf
                      srl/init-request-response-channels-xf
+                     siw/init-lifecycle-xf
                      srl/init-lifecycle-xf)
                (fn [& [system component]]
                  system)
@@ -86,7 +88,7 @@
                        :ow.system/dependencies #{:c1}
                        :ow.system/instances 2}
 
-                  :c3 {:ow.system/request-listener {:topic       :foo1
+                  :c3 {:ow.system/request-listener {:topics      #{:foo1}
                                                     :handler     (fn [this request]
                                                                    (println "RECEIVED REQUEST C3" request))
                                                     :retry-count 3}
@@ -101,7 +103,7 @@
                                                        this)}]
                        :ow.system/dependencies #{:c4}}
 
-                  :c4 {:ow.system/request-listener {:topic :foo2
+                  :c4 {:ow.system/request-listener {:topics  #{:foo2}
                                                     :handler (fn [this request]
                                                                (println "RECEIVED REQUEST C4" request))}
                        :ow.system/lifecycles [{:start (fn [this]
@@ -116,10 +118,19 @@
                                                         this)
                                                :stop (fn [this]
                                                        (println "STOP C5")
-                                                       this)}]}}]
+                                                       this)}]}
 
-  (-> components
-      init-system
-      start-system
-      stop-system
-      clojure.pprint/pprint))
+                  :w1 {:ow.system/interval-worker {:actions [{:interval 10000
+                                                              :name     :action1
+                                                              :action   (fn [this]
+                                                                          (println "ACTION1"))}
+                                                             {:interval 13000
+                                                              :name     :action2
+                                                              :action   (fn [this]
+                                                                          (throw (Exception. "FAIL ACTION2")))}]}}}
+      system (init-system components)
+      _      (Thread/sleep 1000)
+      system (start-system system)
+      _      (Thread/sleep 30000)
+      system (stop-system system)]
+  (clojure.pprint/pprint system))
