@@ -7,7 +7,7 @@
 
 ;;; TODO: implement spec'd requests/events
 
-(def ^:private ^:dynamic *request-map* {})
+(def ^:private ^:dynamic *current-request-map* {})
 
 (defn- request-map-info [request-map]
   (let [{:keys [flowids] :as unified} (reduce (fn [unified [topic {:keys [id flowid] :as request}]]
@@ -19,12 +19,12 @@
                                               request-map)]
     (when-not (= (count flowids) 1)
       (log/warn "multiple flowids detected within a single request-map"
-                {:request-map *request-map*
+                {:request-map request-map
                  :unified     unified}))
     unified))
 
 (defn- current-request-map-info []
-  (request-map-info *request-map*))
+  (request-map-info *current-request-map*))
 
 (defn- current-flowid []
   (or (some-> (current-request-map-info) :flowids first)
@@ -125,7 +125,7 @@
           (run-loop [this in-ch]
             (a/go-loop [request-map (a/<! in-ch)]
               (if-not (nil? request-map)
-                (do (binding [*request-map* request-map]
+                (do (binding [*current-request-map* request-map]
                       (future
                         (->> (apply-handler this request-map)
                              (handle-response this request-map))))
@@ -156,7 +156,7 @@
                    :flowid  (current-flowid)
                    :topic   topic
                    :request request}]
-    (binding [*request-map* {topic event-map}]
+    (binding [*current-request-map* {topic event-map}]
       (trace-request this "emitting event-map")
       (a/put! out-ch event-map))))
 
@@ -178,7 +178,7 @@
                                                                     :request request}))
                           (ex-info "timeout while waiting for response" {:trace-info (trace-info this)
                                                                          :request request}))))]
-    (binding [*request-map* {topic request-map}]
+    (binding [*current-request-map* {topic request-map}]
       (trace-request this "requesting request-map")
       (a/put! out-ch request-map)
       (let [response (a/<!! receipt)]
