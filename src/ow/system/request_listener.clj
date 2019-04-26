@@ -63,43 +63,26 @@
                        :trace-info    (trace-info this)
                        :try           (or try :last)}))
 
-          (default-retry-delay-fn [n]
-            (let [n      (inc n)
-                  cap    (* 30 60 1000)
-                  msec   (* (Math/log10 n)
-                            (* n n)
-                            1000)
-                  msec   (min msec cap)
-                  varpct (* (/ msec 100)
-                            10)
-                  varrnd (- (rand-int varpct)
-                            (/ varpct 2))]
-              (int (+ msec varrnd))))
-
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
                           request-map]
             (let [retry-count    (or retry-count 1)
-                  retry-delay-fn (or retry-delay-fn default-retry-delay-fn)
+                  retry-delay-fn (or retry-delay-fn
+                                     (owclj/make-retry-delay-log10-f :exp 2.0
+                                                                     :cap (* 30 60 1000)
+                                                                     :varpct 10.0))
                   requests       (->> request-map
                                       (map (fn [[topic request]]
                                              [topic (get request :request)]))
                                       (into {}))]
-              (try
-                (owclj/try-times retry-count  ;; TODO: implement abort (e.g. when system gets shut down)
-                                 (fn [try]
-                                   (trace-request this "invoking handler, try" try)
-                                   (handler this requests))
-                                 :interleave-f (fn [e try]
-                                                 (handle-exception this e try)
-                                                 (let [delay (retry-delay-fn try)
-                                                       p     (promise)]
-                                                   (a/go
-                                                     (a/<! (a/timeout delay))
-                                                     (deliver p true))
-                                                   p)))
-                (catch Throwable e
-                  (handle-exception this e)
-                  e))))
+              (owclj/tries [retry-count  ;; TODO: implement abort (e.g. when system gets shut down in between retries)
+                            :try-sym       try
+                            :exception-f   (partial handle-exception this)
+                            :retry-delay-f retry-delay-fn]
+                           (trace-request this "invoking handler, try" try)
+                           (handler this requests)
+                           (catch Throwable e
+                             (handle-exception this e)
+                             e))))
 
           (handle-response [this request-map response]
             (let [response-chs (->> request-map
