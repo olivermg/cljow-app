@@ -1,6 +1,6 @@
 (ns ow.oauth.client.requester)
 
 (defprotocol OAuthRequester
-  (do-grant [this code scopes])
-  (do-refresh [this refresh-token])
-  (do-request [this access-token method path headers body]))
+  (grant-via-authorization-code [this code])
+  (refresh [this refresh-token])
+  (request [this access-token method path headers body]))
