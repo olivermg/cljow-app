@@ -49,7 +49,8 @@
          {:http-client (ohc/make-client)}))
 
 (defmethod ol/stop* HerokuPartnerApiOAuthRequester [this]
-  (assoc this :http-client nil))
+  {:dependencies {}
+   :this         (assoc this :http-client nil)})
 
 (defn construct [client-secret]
   (map->HerokuPartnerApiOAuthRequester {:client-secret client-secret}))

@@ -7,7 +7,7 @@
 
 (defrecord OAuthClient [token-storage oauth-requester])
 
-(defn grant [{:keys [token-storage oauth-requester] :as this} token-id code scopes]
+(defn grant [{:keys [token-storage oauth-requester] :as this} token-id code]
   (let [{:keys [access-token refresh-token expires-at] :as oauth-token} (oocr/grant-via-authorization-code oauth-requester code)]
     (oocts/set-token token-storage token-id access-token refresh-token expires-at)
     access-token))
@@ -52,9 +52,10 @@
   (merge this dependencies))
 
 (defmethod ol/stop* OAuthClient [this]
-  (assoc this
-         :token-storage   nil
-         :oauth-requester nil))
+  {:dependencies (select-keys this #{:oauth-requester :token-storage})
+   :this         (assoc this
+                        :token-storage   nil
+                        :oauth-requester nil)})
 
 (defn construct []
   (map->OAuthClient {}))

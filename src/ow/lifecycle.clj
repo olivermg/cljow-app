@@ -10,8 +10,14 @@
 (defmulti start* (fn [this dependencies] (type this)))
 (defmulti stop* (fn [this] (type this)))
 
-(defmethod start* :default [this dependencies] (merge this dependencies))
-(defmethod stop* :default [this] this)
+(defmethod start* :default [this dependencies] (merge this
+                                                      dependencies
+                                                      {::dependencies (keys dependencies)}))
+(defmethod stop* :default [this] (let [dependencies (->> this
+                                                         ::dependencies
+                                                         (select-keys this))]
+                                   {:dependencies dependencies
+                                    :this this}))
 
 (defn start
   ([this dependencies]

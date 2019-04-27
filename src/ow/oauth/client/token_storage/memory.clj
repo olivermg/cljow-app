@@ -21,7 +21,8 @@
   (merge this dependencies))
 
 (defmethod ol/stop* MemoryTokenStorage [this]
-  this)
+  {:dependencies {}
+   :this         this})
 
 (defn construct []
   (map->MemoryTokenStorage {}))
