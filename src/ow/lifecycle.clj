@@ -1,27 +1,25 @@
 (ns ow.lifecycle
   (:require [clojure.tools.logging :as log]))
 
-(defn construct [type name data]
-  (assoc data
-         ::type type
-         ::name name))
+(defn construct [& args])
+(defn get-name [& args])
+(defn get-type [& args])
 
-(defn get-type [{:keys [::type] :as this}]
-  type)
 
-(defn get-name [{:keys [::name] :as this}]
-  name)
 
-(defmulti start* (fn [{:keys [::type] :as this} & args] type))
-(defmulti stop* (fn [{:keys [::type] :as this} & args] type))
+(defmulti start* (fn [this dependencies] (type this)))
+(defmulti stop* (fn [this] (type this)))
 
-(defmethod start* :default [this] this)
+(defmethod start* :default [this dependencies] (merge this dependencies))
 (defmethod stop* :default [this] this)
 
-(defn start [this]
-  (log/info (str "Starting " (get-name this) "[" (get-type this) "]"))
-  (start* this))
+(defn start
+  ([this dependencies]
+   (log/info (str "Starting " (type this)))
+   (start* this dependencies))
+  ([this]
+   (start this {})))
 
 (defn stop [this]
-  (log/info (str "Stopping " (get-name this) "[" (get-type this) "]"))
+  (log/info (str "Stopping " (type this)))
   (stop* this))
