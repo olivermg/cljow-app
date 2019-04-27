@@ -1,6 +1,7 @@
 (ns ow.oauth.client
   (:require [clojure.tools.logging :as log]
             [ow.clojure :as owclj]
+            [ow.lifecycle :as ol]
             [ow.oauth.client.requester :as oocr]
             [ow.oauth.client.token-storage :as oocts]))
 
@@ -46,3 +47,14 @@
                              (expires-soon? expires-at) (do (refresh-async refresh-token) nil))
                            access-token)]
       (request access-token refresh-token))))
+
+(defmethod ol/start* OAuthClient [this dependencies]
+  (merge this dependencies))
+
+(defmethod ol/stop* OAuthClient [this]
+  (assoc this
+         :token-storage   nil
+         :oauth-requester nil))
+
+(defn construct []
+  (map->OAuthClient {}))

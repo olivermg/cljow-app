@@ -1,10 +1,11 @@
-(ns ow.oauth.client.requester.heroku-partner-api
+(ns ow.oauth.client.requester.heroku-platform-api
   (:require [clj-time.core :as t]
             [clj-time.coerce :as tc]
             [clojure.data.json :as json]
             [clojure.tools.logging :as log]
             [org.httpkit.client :as http]
             [ow.http-client :as ohc]
+            [ow.lifecycle :as ol]
             [ow.oauth.client.requester :as oocr]))
 
 (defonce ^:private +urls+ {:grant "https://id.heroku.com/oauth/token"})
@@ -42,11 +43,13 @@
   (request [this access-token method path headers body]
     ))
 
-(defn start [this]
-  (assoc this :http-client (ohc/make-client)))
+(defmethod ol/start* HerokuPartnerApiOAuthRequester [this dependencies]
+  (merge this
+         dependencies
+         {:http-client (ohc/make-client)}))
 
-(defn stop [this]
-  this)
+(defmethod ol/stop* HerokuPartnerApiOAuthRequester [this]
+  (assoc this :http-client nil))
 
 (defn construct [client-secret]
   (map->HerokuPartnerApiOAuthRequester {:client-secret client-secret}))

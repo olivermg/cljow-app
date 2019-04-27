@@ -1,5 +1,6 @@
 (ns ow.oauth.client.token-storage.memory
   (:require [clojure.tools.logging :as log]
+            [ow.lifecycle :as ol]
             [ow.oauth.client.token-storage :as oocts]))
 
 (defonce ^:private +storage+ (atom {}))
@@ -16,10 +17,10 @@
                        :refresh-token refresh-token
                        :expires-at expires-at})))
 
-(defn start [this]
-  this)
+(defmethod ol/start* MemoryTokenStorage [this dependencies]
+  (merge this dependencies))
 
-(defn stop [this]
+(defmethod ol/stop* MemoryTokenStorage [this]
   this)
 
 (defn construct []
