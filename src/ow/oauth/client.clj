@@ -7,8 +7,15 @@
 
 (defrecord OAuthClient [token-storage oauth-requester])
 
+(defn- check-token [{:keys [type access-token refresh-token expires-at] :as oauth-token}]
+  (when-not (and type access-token refresh-token expires-at)  ;; TODO: check this via spec
+    (throw (ex-info "oauth token is incomplete" {:oauth-token oauth-token})))
+  ;;; TODO: check expires-at
+  oauth-token)
+
 (defn grant [{:keys [token-storage oauth-requester] :as this} token-id code]
-  (let [oauth-token (oocr/grant-via-authorization-code oauth-requester code)]
+  (let [oauth-token (-> (oocr/grant-via-authorization-code oauth-requester code)
+                        (check-token))]
     (oocts/set-token token-storage token-id oauth-token)
     oauth-token))
 
@@ -17,19 +24,14 @@
 
 (defn request [{:keys [token-storage oauth-requester] :as this} token-id method path & {:keys [headers body]}]
   (letfn [(has-expired? [expires-at]
-            false)
+            false)  ;; TODO: implement
 
           (expires-soon? [expires-at]
-            false)
+            false)  ;; TODO: implement
 
           (refresh [oauth-token]  ;; FIXME: implement protection for multiple overlapping refreshes
-            #_(owclj/tries [5
-                          :try-sym       try
-                          :exception-f   (fn [e try]
-                                           (log/warn "refresh failed" try (str e)))
-                          :retry-delay-f (owclj/make-retry-delay-log10-f :exp 1.5 :cap (* 60 1000) :varpct 10.0)]
-                         (log/trace "refresh, try" try))
-            (let [oauth-token (oocr/refresh oauth-requester oauth-token)]
+            (let [oauth-token (-> (oocr/refresh oauth-requester oauth-token)
+                                  (check-token))]
               (oocts/set-token token-storage token-id oauth-token)
               oauth-token))
 
@@ -37,18 +39,19 @@
             (future
               (refresh oauth-token)))
 
-          (request [oauth-token]
+          (request [oauth-token is-retry?]
             (let [{:keys [status] :as result} (oocr/request oauth-requester oauth-token method path headers body)]
-              (if-not (= status 401)
-                result
-                (let [oauth-token (refresh oauth-token)]
-                  (oocr/request oauth-requester oauth-token method path headers body)))))]
+              (cond
+                (and (= status 401) (not is-retry?)) (recur (refresh oauth-token) true)
+                (not (<= 200 status 299))            (throw (ex-info "request unsuccessful" {:result result}))
+                true                                 result)))]
 
     (if-let [{:keys [expires-at] :as oauth-token} (oocts/get-token token-storage token-id)]
-      (request (or (cond
-                     (has-expired? expires-at)  (refresh oauth-token)
-                     (expires-soon? expires-at) (do (refresh-async oauth-token) nil))
-                   oauth-token))
+      (-> (cond
+            (has-expired? expires-at)  (refresh oauth-token)
+            (expires-soon? expires-at) (do (refresh-async oauth-token) nil))
+          (or oauth-token)
+          (request false))
       (throw (ex-info "no oauth-token found" {:token-id token-id})))))
 
 (defmethod ol/start* OAuthClient [this dependencies]
