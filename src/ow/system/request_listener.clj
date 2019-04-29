@@ -59,11 +59,11 @@
 (defn init-lifecycle-xf [rf]
   (letfn [(handle-exception [this e & [try]]
             (log/warn "FAILED to invoke handler"
-                      {:error-message (if try
-                                        (str e)
-                                        e)
-                       :trace-info    (trace-info this)
-                       :try           (or try :last)}))
+                      {:error      (if try
+                                     (str e)
+                                     e)
+                       :trace-info (trace-info this)
+                       :try        (or try :last)}))
 
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
                           request-map]
