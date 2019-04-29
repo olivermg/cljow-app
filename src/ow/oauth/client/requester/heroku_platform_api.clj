@@ -8,40 +8,53 @@
             [ow.lifecycle :as ol]
             [ow.oauth.client.requester :as oocr]))
 
-(defonce ^:private +urls+ {:grant "https://id.heroku.com/oauth/token"})
+(defn- handle-http-response [{:keys [status error body] :as response} & {:keys [check-success?]}]
+  (when error
+    (throw (ex-info "authorization-code grant failed with error" {:error error})))
+  (when (and check-success? (not (<= 200 status 299)))
+    (throw (ex-info "authorization-code grant responded with unsuccessful http status" {:status status :body body})))
+  (update response :body #(if-not (empty? %) (json/read-str % :key-fn keyword) %)))
 
-(defrecord HerokuPartnerApiOAuthRequester [client-secret
+(defrecord HerokuPartnerApiOAuthRequester [client-secret base-url
                                            http-client]
 
   oocr/OAuthRequester
 
   (grant-via-authorization-code [this code]
-    (let [{:keys [status body]} @(http/post (get +urls+ :grant)
-                                            {:client http-client
-                                             :form-params {:grant_type    "authorization_code"
-                                                           :code          code
-                                                           :client_secret client-secret}})]
-      (when-not (<= 200 status 299)
-        (throw (ex-info "authorization-code grant responded with error" {:status status :body body})))
-      (when (empty? body)
-        (throw (ex-info "authorization-code grant responded with empty body" {:status status :body body})))
-      (let [{:keys [access_token refresh_token expires_in token_type] :as body}
-            (some-> body (json/read-str :key-fn keyword))]
-        (when-not (and access_token refresh_token expires_in token_type)
-          (throw (ex-info "missing data in authorization-code grant response" {:status status :body body})))
-        {:access-token  access_token
-         :refresh-token refresh_token
-         :expires-at    (->> (- expires_in 30)
-                             (t/seconds)
-                             (t/plus (t/now))
-                             tc/to-date)
-         :type          token_type})))
+    (let [{{:keys [access_token refresh_token expires_in token_type] :as body} :body :as response}
+          (-> @(http/post "https://id.heroku.com/oauth/token"
+                          {:client http-client
+                           :form-params {:grant_type    "authorization_code"
+                                         :code          code
+                                         :client_secret client-secret}})
+              (handle-http-response :check-success? true))]
+      (when-not (and access_token refresh_token expires_in token_type)  ;; TODO: check this via spec
+        (throw (ex-info "missing data in authorization-code grant response" {:body body})))
+      {:access-token  access_token
+       :refresh-token refresh_token
+       :expires-at    (->> (- expires_in 30)
+                           (t/seconds)
+                           (t/plus (t/now))
+                           tc/to-date)
+       :type          token_type}))
 
-  (refresh [this refresh-token]
+  (refresh [this {:keys [refresh-token] :as oauth-token}]
     )
 
-  (request [this access-token method path headers body]
-    ))
+  (request [this {:keys [type access-token] :as oauth-token} method path headers body]
+    (-> @(http/request {:url     (str base-url path)
+                        :method  method
+                        :client  http-client
+                        :timeout 10000
+                        :headers (merge (into {} [(when body
+                                                    ["content-type"  "application/json"])
+                                                  ["accept"        "application/vnd.heroku+json; version=3"]
+                                                  ["authorization" (str type " " access-token)]])
+                                        headers)
+                        :body    (when body
+                                   (json/write-str body))})
+        (handle-http-response)
+        (select-keys #{:status :body}))))
 
 (defmethod ol/start* HerokuPartnerApiOAuthRequester [this dependencies]
   (merge this
@@ -53,4 +66,5 @@
    :this         (assoc this :http-client nil)})
 
 (defn construct [client-secret]
-  (map->HerokuPartnerApiOAuthRequester {:client-secret client-secret}))
+  (map->HerokuPartnerApiOAuthRequester {:client-secret client-secret
+                                        :base-url      "https://api.heroku.com"}))
