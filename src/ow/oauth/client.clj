@@ -21,6 +21,7 @@
     oauth-token))
 
 (defn get-token [{:keys [token-storage] :as this} token-id]
+  (log/trace "OAUTH GET-TOKEN" token-id)
   (oocts/get-token token-storage token-id))  ;; TODO: don't return it when it's expired
 
 (defn request [{:keys [token-storage oauth-requester] :as this} token-id method path & {:keys [headers body]}]
