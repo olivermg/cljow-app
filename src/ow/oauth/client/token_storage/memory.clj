@@ -10,14 +10,13 @@
   oocts/TokenStorage
 
   (get-token [this id]
-    (get @+storage+ id))
+    (let [token (get @+storage+ id)]
+      (log/trace "GET TOKEN" id token)
+      token))
 
   (set-token [this id token-data]
-    (swap! +storage+ merge token-data
-           #_{:type          type
-            :access-token  access-token
-            :refresh-token refresh-token
-            :expires-at    expires-at})))
+    (log/trace "STORE TOKEN" id token-data)
+    (swap! +storage+ update id #(merge % token-data))))
 
 (defmethod ol/start* MemoryTokenStorage [this dependencies]
   (merge this dependencies))
