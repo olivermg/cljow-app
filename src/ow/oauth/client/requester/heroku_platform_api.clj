@@ -26,8 +26,6 @@
                                          :code          code
                                          :client_secret client-secret}})
               (handle-http-response))]
-      (log/warn "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO" code client-secret http-client)
-      (log/warn "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII" body)
       {:access-token  access_token
        :refresh-token refresh_token
        :expires-at    (some->> expires_in
