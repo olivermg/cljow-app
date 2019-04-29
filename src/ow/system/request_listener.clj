@@ -59,7 +59,9 @@
 (defn init-lifecycle-xf [rf]
   (letfn [(handle-exception [this e & [try]]
             (log/warn "FAILED to invoke handler"
-                      {:error-message (str e)
+                      {:error-message (if try
+                                        (str e)
+                                        e)
                        :trace-info    (trace-info this)
                        :try           (or try :last)}))
 
