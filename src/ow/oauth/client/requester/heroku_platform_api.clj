@@ -8,11 +8,9 @@
             [ow.lifecycle :as ol]
             [ow.oauth.client.requester :as oocr]))
 
-(defn- handle-http-response [{:keys [status error body] :as response} & {:keys [check-success?]}]
+(defn- handle-http-response [{:keys [status error body] :as response}]
   (when error
-    (throw (ex-info "authorization-code grant failed with error" {:error error})))
-  (when (and check-success? (not (<= 200 status 299)))
-    (throw (ex-info "authorization-code grant responded with unsuccessful http status" {:status status :body body})))
+    (throw (ex-info "http-request failed with error" {:error error})))
   (update response :body #(if-not (empty? %) (json/read-str % :key-fn keyword) %)))
 
 (defrecord HerokuPartnerApiOAuthRequester [client-secret base-url
@@ -27,15 +25,14 @@
                            :form-params {:grant_type    "authorization_code"
                                          :code          code
                                          :client_secret client-secret}})
-              (handle-http-response :check-success? true))]
-      (when-not (and access_token refresh_token expires_in token_type)  ;; TODO: check this via spec
-        (throw (ex-info "missing data in authorization-code grant response" {:body body})))
+              (handle-http-response))]
       {:access-token  access_token
        :refresh-token refresh_token
-       :expires-at    (->> (- expires_in 30)
-                           (t/seconds)
-                           (t/plus (t/now))
-                           tc/to-date)
+       :expires-at    (some->> expires_in
+                               (- 30)
+                               (t/seconds)
+                               (t/plus (t/now))
+                               tc/to-date)
        :type          token_type}))
 
   (refresh [this {:keys [refresh-token] :as oauth-token}]
