@@ -59,6 +59,10 @@
            (let [resulting-component (op system component)]
              (rf (assoc-in system [:components name :workers instance] resulting-component) resulting-component))))))))
 
+(defn get-dependencies [{:keys [ow.system/dependencies] :as this}]
+  (reduce (fn [dependencies [name components]]
+            (assoc dependencies name (rand-nth components)))
+          {} dependencies))
+
 (defn get-dependency [{:keys [ow.system/dependencies] :as this} name]
-  (-> (get dependencies name)
-      (rand-nth)))
+  (get (get-dependencies dependencies) name))
