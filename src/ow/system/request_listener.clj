@@ -34,8 +34,8 @@
   (-> (current-request-map-info)
       (assoc :name (osu/worker-name this))))
 
-(defn- trace-request [this msg & msgs]
-  (log/trace (trace-info this) (apply str msg (interleave (repeat " ") msgs))))
+(defn- trace-request [this payload msg & msgs]
+  (log/trace (apply str msg (interleave (repeat " ") msgs)) (trace-info this) payload))
 
 (defn init-request-response-channels-xf [rf]
   (let [out-ch  (a/chan)
@@ -80,7 +80,7 @@
                             :try-sym       try
                             :exception-f   (partial handle-exception this)
                             :retry-delay-f retry-delay-fn]
-                           (trace-request this "invoking handler, try" try)
+                           (trace-request this requests "invoking handler, try" try)
                            (handler this requests)
                            (catch Throwable e
                              (handle-exception this e)
@@ -93,15 +93,15 @@
                                     (remove nil?))]
               (cond
                 ;;; 1. if caller(s) is/are waiting for a response, return response to it/them, regardless of if it's an exception or not:
-                (not-empty response-chs)       (do (trace-request this "sending back handler's response")
+                (not-empty response-chs)       (do (trace-request this response "sending back handler's response")
                                                    (doseq [response-ch response-chs]
                                                      (a/put! response-ch [response])
                                                      (a/close! response-ch)))
                 ;;; 2. if nobody is waiting for our response, throw exceptions:
-                (instance? Throwable response) (do (trace-request this "throwing handler's exception")
+                (instance? Throwable response) (do (trace-request this response "throwing handler's exception")
                                                    (throw response))
                 ;;; 3. if nobody is waiting for our response, simply evaluate to regular responses:
-                true                           (do (trace-request this "discarding handler's response")
+                true                           (do (trace-request this response "discarding handler's response")
                                                    response))))
 
           (run-loop [this in-ch]
@@ -139,7 +139,7 @@
                    :topic   topic
                    :request request}]
     (binding [*current-request-map* {topic event-map}]
-      (trace-request this "emitting event-map")
+      (trace-request this event-map "emitting event-map")
       (a/put! out-ch event-map))))
 
 (defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
@@ -161,10 +161,10 @@
                           (ex-info "timeout while waiting for response" {:trace-info (trace-info this)
                                                                          :request request}))))]
     (binding [*current-request-map* {topic request-map}]
-      (trace-request this "requesting request-map")
+      (trace-request this request-map "requesting request-map")
       (a/put! out-ch request-map)
       (let [response (a/<!! receipt)]
-        (trace-request this "received response")
+        (trace-request this response "received response")
         (if-not (instance? Throwable response)
           response
           (throw response))))))
