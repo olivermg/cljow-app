@@ -2,4 +2,4 @@
 
 (defprotocol TokenStorage
   (get-token [this id])
-  (set-token [this id access-token refresh-token expires-at]))
+  (set-token [this id token-data]))

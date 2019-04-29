@@ -12,10 +12,12 @@
   (get-token [this id]
     (get @+storage+ id))
 
-  (set-token [this id access-token refresh-token expires-at]
-    (reset! +storage+ {:access-token access-token
-                       :refresh-token refresh-token
-                       :expires-at expires-at})))
+  (set-token [this id token-data]
+    (swap! +storage+ merge token-data
+           #_{:type          type
+            :access-token  access-token
+            :refresh-token refresh-token
+            :expires-at    expires-at})))
 
 (defmethod ol/start* MemoryTokenStorage [this dependencies]
   (merge this dependencies))
