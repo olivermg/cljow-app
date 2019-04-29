@@ -65,4 +65,4 @@
           {} dependencies))
 
 (defn get-dependency [{:keys [ow.system/dependencies] :as this} name]
-  (get (get-dependencies dependencies) name))
+  (get (get-dependencies this) name))
