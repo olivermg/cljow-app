@@ -14,6 +14,7 @@
   oauth-token)
 
 (defn grant [{:keys [token-storage oauth-requester] :as this} token-id code]
+  (log/trace "OAUTH GRANT" token-id code)
   (let [oauth-token (-> (oocr/grant-via-authorization-code oauth-requester code)
                         (check-token))]
     (oocts/set-token token-storage token-id oauth-token)
@@ -23,6 +24,7 @@
   (oocts/get-token token-storage token-id))  ;; TODO: don't return it when it's expired
 
 (defn request [{:keys [token-storage oauth-requester] :as this} token-id method path & {:keys [headers body]}]
+  (log/trace "OAUTH REQUEST" token-id method path headers body)
   (letfn [(has-expired? [expires-at]
             false)  ;; TODO: implement
 
