@@ -10,8 +10,8 @@
 (defrecord OAuthClient [token-storage oauth-requester])
 
 (defn- token-expired? [{:keys [expires-at] :as oauth-token} & [date]]
-  (t/after? (tc/to-date-time expires-at)
-            (tc/to-date-time (or date (t/now)))))
+  (t/after? (tc/to-date-time (or date (t/now)))
+            (tc/to-date-time expires-at)))
 
 (defn- check-token [{:keys [type access-token refresh-token expires-at] :as oauth-token}]
   (when-not (and type access-token refresh-token expires-at)  ;; TODO: check this via spec
@@ -41,28 +41,25 @@
           (expires-soon? [oauth-token]
             (token-expired? oauth-token (t/minus (t/now) (t/minutes 5))))
 
-          (refresh [oauth-token]  ;; FIXME: implement protection for multiple overlapping refreshes
-            (let [oauth-token (-> (oocr/refresh oauth-requester oauth-token)
-                                  (check-token))]
-              (oocts/set-token token-storage token-id oauth-token)
-              oauth-token))
-
-          (refresh-async [oauth-token]
+          (refresh-async [oauth-token]  ;; FIXME: implement protection for multiple overlapping refreshes
             (future
-              (refresh oauth-token)))
+              (let [oauth-token (-> (oocr/refresh oauth-requester oauth-token)
+                                    (check-token))]
+                (oocts/set-token token-storage token-id oauth-token)
+                oauth-token)))
 
           (request [oauth-token is-retry?]
             (let [{:keys [status] :as result} (oocr/request oauth-requester oauth-token method path headers body)]
               (cond
-                (and (= status 401) (not is-retry?)) (recur (refresh oauth-token) true)
+                (and (= status 401) (not is-retry?)) (recur @(refresh-async oauth-token) true)
                 (not (<= 200 status 299))            (throw (ex-info "request unsuccessful" {:result result}))
                 true                                 result)))]
 
     (if-let [{:keys [expires-at] :as oauth-token} (oocts/get-token token-storage token-id)]
       (-> (cond
-            (has-expired? oauth-token)  (refresh oauth-token)
-            (expires-soon? oauth-token) (do (refresh-async oauth-token) nil))
-          (or oauth-token)
+            (has-expired? oauth-token)  @(refresh-async oauth-token)
+            (expires-soon? oauth-token) (do (refresh-async oauth-token)
+                                            oauth-token))
           (request false))
       (throw (ex-info "no oauth-token found" {:token-id token-id})))))
 
