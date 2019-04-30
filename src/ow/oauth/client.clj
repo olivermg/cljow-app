@@ -55,7 +55,7 @@
                 (not (<= 200 status 299))            (throw (ex-info "request unsuccessful" {:result result}))
                 true                                 result)))]
 
-    (if-let [{:keys [expires-at] :as oauth-token} (oocts/get-token token-storage token-id)]
+    (if-let [oauth-token (oocts/get-token token-storage token-id)]
       (-> (cond
             (has-expired? oauth-token)  @(refresh-async oauth-token)
             (expires-soon? oauth-token) (do (refresh-async oauth-token)
