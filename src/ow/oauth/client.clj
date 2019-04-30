@@ -1,5 +1,7 @@
 (ns ow.oauth.client
-  (:require [clojure.tools.logging :as log]
+  (:require [clj-time.core :as t]
+            [clj-time.coerce :as tc]
+            [clojure.tools.logging :as log]
             [ow.clojure :as owclj]
             [ow.lifecycle :as ol]
             [ow.oauth.client.requester :as oocr]
@@ -7,10 +9,15 @@
 
 (defrecord OAuthClient [token-storage oauth-requester])
 
+(defn- token-expired? [{:keys [expires-at] :as oauth-token} & [date]]
+  (t/after? (tc/to-date-time expires-at)
+            (tc/to-date-time (or date (t/now)))))
+
 (defn- check-token [{:keys [type access-token refresh-token expires-at] :as oauth-token}]
   (when-not (and type access-token refresh-token expires-at)  ;; TODO: check this via spec
     (throw (ex-info "oauth token is incomplete" {:oauth-token oauth-token})))
-  ;;; TODO: check expires-at
+  (when (token-expired? oauth-token)
+    (throw (ex-info "oauth token has expired" {:oauth-token oauth-token})))
   oauth-token)
 
 (defn grant [{:keys [token-storage oauth-requester] :as this} token-id code]
@@ -22,15 +29,17 @@
 
 (defn get-token [{:keys [token-storage] :as this} token-id]
   (log/trace "OAUTH GET-TOKEN" token-id)
-  (oocts/get-token token-storage token-id))  ;; TODO: don't return it when it's expired
+  (let [oauth-token (oocts/get-token token-storage token-id)]
+    (when-not (token-expired? oauth-token)
+      oauth-token)))
 
 (defn request [{:keys [token-storage oauth-requester] :as this} token-id method path & {:keys [headers body]}]
   (log/trace "OAUTH REQUEST" token-id method path headers body)
-  (letfn [(has-expired? [expires-at]
-            false)  ;; TODO: implement
+  (letfn [(has-expired? [oauth-token]
+            (token-expired? oauth-token))
 
-          (expires-soon? [expires-at]
-            false)  ;; TODO: implement
+          (expires-soon? [oauth-token]
+            (token-expired? oauth-token (t/minus (t/now) (t/minutes 5))))
 
           (refresh [oauth-token]  ;; FIXME: implement protection for multiple overlapping refreshes
             (let [oauth-token (-> (oocr/refresh oauth-requester oauth-token)
@@ -51,8 +60,8 @@
 
     (if-let [{:keys [expires-at] :as oauth-token} (oocts/get-token token-storage token-id)]
       (-> (cond
-            (has-expired? expires-at)  (refresh oauth-token)
-            (expires-soon? expires-at) (do (refresh-async oauth-token) nil))
+            (has-expired? oauth-token)  (refresh oauth-token)
+            (expires-soon? oauth-token) (do (refresh-async oauth-token) nil))
           (or oauth-token)
           (request false))
       (throw (ex-info "no oauth-token found" {:token-id token-id})))))
