@@ -3,10 +3,10 @@
             [clojure.string :as s]
             [clojure.tools.logging :as log]))
 
-(def ^:dynamic +callinfo+ {:stacktrace []})
+(def ^:dynamic +callinfo+ {:trace []})
 
 (defmacro with-logged-step [& body]
-  `(binding [+callinfo+ (update +callinfo+ :stacktrace conj (rand-int 10000))]
+  `(binding [+callinfo+ (update +callinfo+ :trace conj (rand-int 10000))]
      ~@body))
 
 (defmacro with-logging-data [data & body]
@@ -53,6 +53,7 @@
   (with-logging-data {:user "user123"}
     (pvalues (with-logged-step
                (bar1 (inc x)))
-             (with-logged-step
-               (bar2 (inc x)))))
+             (do (Thread/sleep 2000)
+                 (with-logged-step
+                   (bar2 (inc x))))))
   (log "baz 2" x))
