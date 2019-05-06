@@ -15,7 +15,9 @@
 
 (defmacro log [& msgs]
   `(log/info (pr-str (assoc +callinfo+
-                            :message (s/join " " (list ~@msgs))))))
+                            :msg (s/join " " (list ~@msgs))
+                            :date (java.util.Date.)
+                            :ns ~(str *ns*)))))
 
 
 (defn foo1 [x]
