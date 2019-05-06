@@ -19,14 +19,16 @@
   oocr/OAuthRequester
 
   (grant-via-authorization-code [this code]
-    (let [{{:keys [access_token refresh_token expires_in token_type] :as body} :body :as response}
+    (let [form-params {:grant_type    "authorization_code"
+                       :code          code
+                       :client_secret client-secret}
+          _ (log/trace "sending heroku grant" form-params)
+          {{:keys [access_token refresh_token expires_in token_type] :as body} :body :as response}
           (-> @(http/post "https://id.heroku.com/oauth/token"
-                          {:client http-client
-                           :form-params {:grant_type    "authorization_code"
-                                         :code          code
-                                         :client_secret client-secret}})
+                          {:client      http-client
+                           :form-params form-params})
               (handle-http-response))]
-      (log/trace "heroku grant response received" body)
+      (log/trace "received heroku grant response" response)
       {:access-token  access_token
        :refresh-token refresh_token
        :expires-at    (->> (- (or expires_in 0) 30)
@@ -36,22 +38,27 @@
        :type          token_type}))
 
   (refresh [this {:keys [refresh-token] :as oauth-token}]
-    )
+    (log/warn "REFRESH has not been implemented yet")
+    oauth-token)
 
   (request [this {:keys [type access-token] :as oauth-token} method path headers body]
-    (-> @(http/request {:url     (str base-url path)
-                        :method  method
-                        :client  http-client
-                        :timeout 10000
-                        :headers (merge (into {} [(when body
-                                                    ["content-type"  "application/json"])
-                                                  ["accept"        "application/vnd.heroku+json; version=3"]
-                                                  ["authorization" (str type " " access-token)]])
-                                        headers)
-                        :body    (when body
-                                   (json/write-str body))})
-        (handle-http-response)
-        (select-keys #{:status :body}))))
+    (let [options {:url     (str base-url path)
+                   :method  method
+                   :client  http-client
+                   :timeout 10000
+                   :headers (merge (into {} [(when body
+                                               ["content-type"  "application/json"])
+                                             ["accept"        "application/vnd.heroku+json; version=3"]
+                                             ["authorization" (str type " " access-token)]])
+                                   headers)
+                   :body    (when body
+                              (json/write-str body))}
+          _ (log/trace "sending heroku request" (merge {:oauth-token oauth-token}
+                                                options))
+          response (-> @(http/request options)
+                       (handle-http-response))]
+      (log/trace "received heroku request response" response)
+      (select-keys response #{:status :body}))))
 
 (defmethod ol/start* HerokuPartnerApiOAuthRequester [this dependencies]
   (merge this

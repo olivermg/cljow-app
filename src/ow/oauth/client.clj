@@ -35,7 +35,12 @@
 
 (defn request [{:keys [token-storage oauth-requester] :as this} token-id method path & {:keys [headers body]}]
   (log/trace "OAUTH REQUEST" token-id method path headers body)
-  (letfn [(has-expired? [oauth-token]
+  (letfn [(trace [msg data]
+            (log/trace msg (merge {:method      method
+                                   :path        path}
+                                  data)))
+
+          (has-expired? [oauth-token]
             (token-expired? oauth-token))
 
           (expires-soon? [oauth-token]
@@ -49,17 +54,25 @@
                 oauth-token)))
 
           (request [oauth-token is-retry?]
+            (trace "sending request" {:oauth-token oauth-token
+                                      :headers     headers
+                                      :body        body})
             (let [{:keys [status] :as result} (oocr/request oauth-requester oauth-token method path headers body)]
+              (log/trace "remote response received" {:result result})
               (cond
-                (and (= status 401) (not is-retry?)) (recur @(refresh-async oauth-token) true)
+                (and (= status 401) (not is-retry?)) (do (trace "remote answered with 401, will refresh and retry" {:oauth-token oauth-token})
+                                                         (recur @(refresh-async oauth-token) true))
                 (not (<= 200 status 299))            (throw (ex-info "request unsuccessful" {:result result}))
                 true                                 result)))]
 
     (if-let [oauth-token (oocts/get-token token-storage token-id)]
       (-> (cond
-            (has-expired? oauth-token)  @(refresh-async oauth-token)
-            (expires-soon? oauth-token) (do (refresh-async oauth-token)
+            (has-expired? oauth-token)  (do (trace "token has expired -> refresh sync" {:oauth-token oauth-token})
+                                            @(refresh-async oauth-token))
+            (expires-soon? oauth-token) (do (trace "token will expire soon -> refresh async" {:oauth-token oauth-token})
+                                            (refresh-async oauth-token)
                                             oauth-token))
+          (or oauth-token)
           (request false))
       (throw (ex-info "no oauth-token found" {:token-id token-id})))))
 
