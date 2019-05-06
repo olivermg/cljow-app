@@ -29,10 +29,10 @@
       (log/trace "heroku grant response received" body)
       {:access-token  access_token
        :refresh-token refresh_token
-       :expires-at    (some->> (- expires_in 30)
-                               (t/seconds)
-                               (t/plus (t/now))
-                               tc/to-date)
+       :expires-at    (->> (- (or expires_in 0) 30)
+                           (t/seconds)
+                           (t/plus (t/now))
+                           tc/to-date)
        :type          token_type}))
 
   (refresh [this {:keys [refresh-token] :as oauth-token}]
