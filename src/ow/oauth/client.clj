@@ -29,7 +29,7 @@
 
 (defn get-token [{:keys [token-storage] :as this} token-id]
   (log/trace "OAUTH GET-TOKEN" token-id)
-  (let [oauth-token (oocts/get-token token-storage token-id)]
+  (when-let [oauth-token (oocts/get-token token-storage token-id)]
     (when-not (token-expired? oauth-token)
       oauth-token)))
 
