@@ -1,4 +1,6 @@
 (ns ow.logging
+  (:refer-clojure :rename {defn defn-clj
+                           fn   fn-clj})
   (:require [clojure.core.async :as a]
             [clojure.string :as s]
             [clojure.tools.logging :as log]))
@@ -20,62 +22,93 @@
   `(with-trace* ~name []
      ~@body))
 
-(defmacro defn-traced [name [& args] & body]
-  `(defn ~name [~@args]
-     (with-trace* ~name [~@args]
-       ~@body)))
+(defmacro fn [name [& args] & body]
+  (let [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destrucutring
+    `(fn-clj ~name [~@argaliases]
+             (with-trace* ~name [~@argaliases]
+               (let [[~@args] [~@argaliases]]
+                 ~@body)))))
+
+(defmacro defn [name [& args] & body]
+  (let [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
+    `(defn-clj ~name [~@argaliases]
+       (with-trace* ~name [~@argaliases]
+         (let [[~@args] [~@argaliases]]
+           ~@body)))))
 
 (defmacro with-trace-data [data & body]
   `(binding [+callinfo+ (update +callinfo+ :data merge ~data)]
      ~@body))
 
-(defmacro log [& msgs]
-  `(log/info (pr-str (assoc +callinfo+
-                            :msg  (s/join " " (list ~@msgs))
-                            ;;;:form ~(str &form)
-                            :time (java.util.Date.)
-                            :ns   ~(str *ns*)))))
+
+(defmacro log [level name & [msg data]]
+  (let [datasym (gensym (str name "-data-"))]
+    `(let [~datasym ~data]
+       (log/log ~level (-> +callinfo+
+                           (assoc :name ~(str name)
+                                  :time (java.util.Date.)
+                                  :ns   ~(str *ns*))
+                           ~(if msg
+                              `(assoc :msg ~msg)
+                              `identity)
+                           ~(if data
+                              `(update :data merge (if (map? ~datasym)
+                                                     ~datasym
+                                                     {~(keyword datasym) ~datasym}))
+                              `identity)
+                           pr-str)))))
+
+(defmacro trace [name & [msg data]]
+  `(log :trace ~name ~msg ~data))
+
+(defmacro debug [name & [msg data]]
+  `(log :debug ~name ~msg ~data))
+
+(defmacro info [name & [msg data]]
+  `(log :info ~name ~msg ~data))
+
+(defmacro warn [name & [msg data]]
+  `(log :warn ~name ~msg ~data))
+
+(defmacro error [name & [msg data]]
+  `(log :error ~name ~msg ~data))
+
+(defmacro fatal [name & [msg data]]
+  `(log :fatal ~name ~msg ~data))
 
 
-#_(do (defn-traced foo1 [x]
-      (log "foo1 1" x)
+
+#_(do (defn foo1 [x]
+      (warn foo11 "foo1 1" x)
       (Thread/sleep (rand-int 1000))
-      (log "foo1 2" x)
+      (info foo12 "foo1 2" x)
       (inc x))
 
-    (defn-traced foo2 [x]
-      (log "foo2 1" x)
+    (defn foo2 [x]
+      (warn foo21 "foo2 1" x)
       (Thread/sleep (rand-int 1000))
-      (log "foo2 2" x)
+      (info foo22 "foo2 2" x)
       (inc x))
 
-    (defn-traced bar1 [x]
-      (log "bar1 1" x)
-      (let [r (doall (pvalues #_(with-logged-step)
-                              (foo1 (inc x))
-                              #_(with-logged-step)
+    (defn bar1 [x]
+      (warn bar11 "bar1 1" x)
+      (let [r (doall (pvalues (foo1 (inc x))
                               (foo2 (inc x))))]
-        (log "bar1 2" x)
+        (info bar12 "bar1 2" x)
         r) )
 
-    (defn-traced bar2 [x]
-      (log "bar2 1" x)
-      (let [r (doall (pvalues #_(with-logged-step)
-                              (foo1 (inc x))
-                              #_(with-logged-step)
+    (defn bar2 [x]
+      (warn bar21 "bar2 1" x)
+      (let [r (doall (pvalues (foo1 (inc x))
                               (foo2 (inc x))))]
-        (log "bar2 2" x)
+        (info bar22 "bar2 2" x)
         r))
 
-    (defn-traced baz [x]
-      (log "baz 1" x)
+    (defn baz [x]
+      (warn baz1 "baz 1" x)
       (with-trace-data {:user "user123"}
-        (pvalues #_(with-logged-step)
-                 (bar1 (inc x))
-                 (do (Thread/sleep 2000)
-                     #_(with-logged-step)
-                     (bar2 (inc x)))))
-      (log "baz 2" x))
+        (pvalues (bar1 (inc x))
+                 (bar2 (inc x))))
+      (info baz2 "baz 2" x))
 
-    #_(with-logged-step)
     (baz 123))
