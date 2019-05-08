@@ -3,6 +3,7 @@
             [clojure.tools.logging :as log]
             [ow.clojure :as owclj]
             [ow.clojure.async :as owa]
+            [ow.logging :as owlog]
             [ow.system.util :as osu]))
 
 ;;; TODO: implement spec'd requests/events
@@ -67,24 +68,25 @@
 
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
                           request-map]
-            (let [retry-count    (or retry-count 1)
-                  retry-delay-fn (or retry-delay-fn
-                                     (owclj/make-retry-delay-log10-f :exp 2.0
-                                                                     :cap (* 30 60 1000)
-                                                                     :varpct 10.0))
-                  requests       (->> request-map
-                                      (map (fn [[topic request]]
-                                             [topic (get request :request)]))
-                                      (into {}))]
-              (owclj/tries [retry-count  ;; TODO: implement abort (e.g. when system gets shut down in between retries)
-                            :try-sym       try
-                            :exception-f   (partial handle-exception this)
-                            :retry-delay-f retry-delay-fn]
-                           (trace-request this requests "invoking handler, try" try)
-                           (handler this requests)
-                           (catch Throwable e
-                             (handle-exception this e)
-                             e))))
+            (owlog/with-trace apply-handler
+              (let [retry-count    (or retry-count 1)
+                    retry-delay-fn (or retry-delay-fn
+                                       (owclj/make-retry-delay-log10-f :exp 2.0
+                                                                       :cap (* 30 60 1000)
+                                                                       :varpct 10.0))
+                    requests       (->> request-map
+                                        (map (fn [[topic request]]
+                                               [topic (get request :request)]))
+                                        (into {}))]
+                (owclj/tries [retry-count  ;; TODO: implement abort (e.g. when system gets shut down in between retries)
+                              :try-sym       try
+                              :exception-f   (partial handle-exception this)
+                              :retry-delay-f retry-delay-fn]
+                             (owlog/trace invoke-handler nil {:try try})
+                             (handler this requests)
+                             (catch Throwable e
+                               (handle-exception this e)
+                               e)))))
 
           (handle-response [this request-map response]
             (let [response-chs (->> request-map
@@ -115,11 +117,11 @@
 
           (make-lifecycle [system component-name]
             (let [worker-sub (get-in system [:components component-name :worker-sub])]
-              {:start (fn request-listener-start [{{:keys [topic-fn topic]} :ow.system/request-listener :as this}]
+              {:start (owlog/fn request-listener-start [{{:keys [topic-fn topic]} :ow.system/request-listener :as this}]
                         (let [in-ch (a/pipe worker-sub (a/chan))]
                           (run-loop this in-ch)
                           (assoc-in this [:ow.system/request-listener :in-ch] in-ch)))
-               :stop  (fn request-listener-stop [this]
+               :stop  (owlog/fn request-listener-stop [this]
                         (update-in this [:ow.system/request-listener :in-ch] #(and % a/close! nil)))}))]
 
     (fn
