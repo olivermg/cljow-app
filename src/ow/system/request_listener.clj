@@ -8,36 +8,6 @@
 
 ;;; TODO: implement spec'd requests/events
 
-(def ^:private ^:dynamic *current-request-map* {})
-
-(defn- request-map-info [request-map]
-  (let [{:keys [flowids] :as unified} (reduce (fn [unified [topic {:keys [id flowid] :as request}]]
-                                                (-> unified
-                                                    (update :flowids conj flowid)
-                                                    (update :ids conj id)))
-                                              {:flowids #{}
-                                               :ids     #{}}
-                                              request-map)]
-    (when-not (= (count flowids) 1)
-      (log/warn "multiple flowids detected within a single request-map"
-                {:request-map request-map
-                 :unified     unified}))
-    unified))
-
-(defn- current-request-map-info []
-  (request-map-info *current-request-map*))
-
-(defn- current-flowid []
-  (or (some-> (current-request-map-info) :flowids first)
-      (rand-int (Integer/MAX_VALUE))))
-
-(defn- trace-info [this]
-  (-> (current-request-map-info)
-      (assoc :name (osu/worker-name this))))
-
-(defn- trace-request [this payload msg & msgs]
-  (log/trace (apply str msg (interleave (repeat " ") msgs)) (trace-info this) payload))
-
 (defn init-request-response-channels-xf [rf]
   (let [out-ch  (a/chan)
         in-mult (a/mult out-ch)]
@@ -51,7 +21,8 @@
                            (update-in system [:components name :worker-sub]
                                       #(or % (let [in-tap (a/tap in-mult (a/chan))
                                                    in-pub (a/pub in-tap topic-fn)]
-                                               (owa/chunking-sub in-pub topics (a/chan) :flowid)))))
+                                               (owa/chunking-sub in-pub topics (a/chan)
+                                                                 (fn [_] (some-> (owlog/get-trace-root) :id)))))))
                          system)
              component (update-in component [:ow.system/requester :out-ch] #(or % out-ch))
              system    (assoc-in system [:components name :workers instance] component)]
@@ -59,12 +30,8 @@
 
 (defn init-lifecycle-xf [rf]
   (letfn [(handle-exception [this e & [try]]
-            (log/warn "FAILED to invoke handler"
-                      (trace-info this)
-                      {:error      (if try
-                                     (str e)
-                                     e)
-                       :try        (or try :last)}))
+            (owlog/warn handler-exception nil {:error (if try (str e) e)
+                                               :try   (or try :last)}))
 
           (apply-handler [{{:keys [handler retry-count retry-delay-fn]} :ow.system/request-listener :as this}
                           request-map]
@@ -95,25 +62,25 @@
                                     (remove nil?))]
               (cond
                 ;;; 1. if caller(s) is/are waiting for a response, return response to it/them, regardless of if it's an exception or not:
-                (not-empty response-chs)       (do (trace-request this response "sending back handler's response")
+                (not-empty response-chs)       (do (owlog/trace handler-result-respond "sending back handler's response" response)
                                                    (doseq [response-ch response-chs]
                                                      (a/put! response-ch [response])
                                                      (a/close! response-ch)))
                 ;;; 2. if nobody is waiting for our response, throw exceptions:
-                (instance? Throwable response) (do (trace-request this response "throwing handler's exception")
+                (instance? Throwable response) (do (owlog/trace handler-result-throw "throwing handler's exception" response)
                                                    (throw response))
                 ;;; 3. if nobody is waiting for our response, simply evaluate to regular responses:
-                true                           (do (trace-request this response "discarding handler's response")
+                true                           (do (owlog/trace handler-result-discard "discarding handler's response" response)
                                                    response))))
 
           (run-loop [this in-ch]
-            (a/go-loop [request-map (a/<! in-ch)]
-              (if-not (nil? request-map)
-                (do (binding [*current-request-map* request-map]
-                      (future
-                        (->> (apply-handler this request-map)
-                             (handle-response this request-map))))
-                    (recur (a/<! in-ch))))))
+            (a/go-loop [topics-map (a/<! in-ch)]
+              (when-not (nil? topics-map)
+                (owlog/with-loginfo (some-> topics-map first val owlog/detach)  ;; TODO: how can we remove this internal knowledge of ow.logging?
+                  (future
+                    (->> (apply-handler this topics-map)
+                         (handle-response this topics-map))))
+                (recur (a/<! in-ch)))))
 
           (make-lifecycle [system component-name]
             (let [worker-sub (get-in system [:components component-name :worker-sub])]
@@ -133,23 +100,18 @@
                          component)]
          (rf (assoc-in system [:components name :workers instance] component) component))))))
 
-(defn emit [{:keys [ow.system/requester] :as this} topic request]
+(owlog/defn emit [{:keys [ow.system/requester] :as this} topic request]
   ;;; TODO: do we need an option to specify retry-count per event?
   (let [{:keys [out-ch]} requester
-        event-map {:id      (rand-int Integer/MAX_VALUE)
-                   :flowid  (current-flowid)
-                   :topic   topic
+        event-map {:topic   topic
                    :request request}]
-    (binding [*current-request-map* {topic event-map}]
-      (trace-request this event-map "emitting event-map")
-      (a/put! out-ch event-map))))
+    (owlog/trace emit "emitting event")
+    (a/put! out-ch (-> event-map owlog/attach))))
 
-(defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
+(owlog/defn request [{:keys [ow.system/requester] :as this} topic request & {:keys [timeout]}]
   (let [{:keys [out-ch]} requester
         response-ch (a/promise-chan)
-        request-map {:id          (rand-int Integer/MAX_VALUE)
-                     :flowid      (current-flowid)
-                     :topic       topic
+        request-map {:topic       topic
                      :request     request
                      :response-ch response-ch}
         receipt     (a/go
@@ -158,34 +120,35 @@
                         (if (= ch response-ch)
                           (if-not (nil? response-container)
                             response
-                            (ex-info "response channel was closed" {:trace-info (trace-info this)
-                                                                    :request request}))
-                          (ex-info "timeout while waiting for response" {:trace-info (trace-info this)
-                                                                         :request request}))))]
-    (binding [*current-request-map* {topic request-map}]
-      (trace-request this request-map "requesting request-map")
-      (a/put! out-ch request-map)
-      (let [response (a/<!! receipt)]
-        (trace-request this response "received response")
-        (if-not (instance? Throwable response)
-          response
-          (throw response))))))
+                            (ex-info "response channel was closed"
+                                     (owlog/log-data response-channel-closed nil request)))
+                          (ex-info "timeout while waiting for response"
+                                   (owlog/log-data response-timeout nil request)))))]
+    (owlog/trace request-request "doing request")
+    (a/put! out-ch (-> request-map owlog/attach))
+    (let [response (a/<!! receipt)]
+      (owlog/trace request-response "received response" response)
+      (if-not (instance? Throwable response)
+        response
+        (throw response)))))
 
 
 
 #_(let [cfg {:ca {:ow.system/request-listener {:topics         #{:a}
                                              :input-spec     :tbd
                                              :output-spec    :tbd
-                                             :handler        (fn [this {:keys [a] :as request-map}]
-                                                               (log/warn "ca got msg" a request-map)
+                                             :handler        (owlog/fn cahandler [this {:keys [a] :as request-map}]
+                                                               (println "AAAAAAAAAAAAAAAAAAAAAAAAAAAa111" (:id (owlog/get-trace-root)))
+                                                               (owlog/warn ca-log nil request-map)
                                                                (Thread/sleep 500)
                                                                (emit this :b {:bdata 1})
                                                                (Thread/sleep 500)
                                                                (emit this :c {:cdata 1}))}}
 
            :cb {:ow.system/request-listener {:topics         #{:b}
-                                             :handler        (fn [this {:keys [b] :as request-map}]
-                                                               (log/warn "cb got msg" b request-map)
+                                             :handler        (owlog/fn cbhandler [this {:keys [b] :as request-map}]
+                                                               (println "AAAAAAAAAAAAAAAAAAAAAAAAAAAa222" (:id (owlog/get-trace-root)))
+                                                               (owlog/warn cb-log nil request-map)
                                                                (Thread/sleep 500)
                                                                #_(emit this :d1 {:d1data 1})
                                                                (-> (request this :d1 {:d1data 1} :timeout 5000)
@@ -193,14 +156,16 @@
 
            :cc {:ow.system/request-listener {:topics         #{:c}
                                              :output-signals [:d2]
-                                             :handler        (fn [this {:keys [c] :as request-map}]
-                                                               (log/warn "cc got msg" c request-map)
+                                             :handler        (owlog/fn cchandler [this {:keys [c] :as request-map}]
+                                                               (println "AAAAAAAAAAAAAAAAAAAAAAAAAAAa333" (:id (owlog/get-trace-root)))
+                                                               (owlog/warn cc-log nil request-map)
                                                                (Thread/sleep 1000)
                                                                (emit this :d2 {:d2data 1}))}}
 
            :cd {:ow.system/request-listener {:topics         #{:d1 :d2}
-                                             :handler        (fn [this {:keys [d1 d2] :as request-map}]
-                                                               (log/warn "cd got msg" d1 d2 request-map)
+                                             :handler        (owlog/fn cdhandler [this {:keys [d1 d2] :as request-map}]
+                                                               (println "AAAAAAAAAAAAAAAAAAAAAAAAAAAa444" (:id (owlog/get-trace-root)))
+                                                               (owlog/warn cd-log nil request-map)
                                                                :d1d2response)}}}
       system (-> (ow.system/init-system cfg)
                  (ow.system/start-system))
