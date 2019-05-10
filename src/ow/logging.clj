@@ -1,7 +1,7 @@
 (ns ow.logging
-  (:refer-clojure :rename {defn    defn-clj
-                           fn      fn-clj
-                           binding binding-clj})
+  (:refer-clojure :rename {defn defn-clj
+                           fn   fn-clj
+                           let  let-clj})
   (:require [clojure.core.async :as a]
             [clojure.string :as s]
             [clojure.tools.logging :as log])
@@ -17,35 +17,35 @@
              `[:args (list ~@args)])]))
 
 (defmacro with-trace* [name [& args] & body]
-  `(binding-clj [+callinfo+ (update +callinfo+ :trace conj (make-trace-info* ~name ~@args))]
-                ~@body))
+  `(binding [+callinfo+ (update +callinfo+ :trace conj (make-trace-info* ~name ~@args))]
+     ~@body))
 
 (defmacro with-trace [name & body]
   `(with-trace* ~name []
      ~@body))
 
 (defmacro fn [name [& args] & body]
-  (let [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
+  (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
     `(fn-clj ~name [~@argaliases]
              (with-trace* ~name [~@argaliases]
-               (let [[~@args] [~@argaliases]]
+               (let-clj [[~@args] [~@argaliases]]
                  ~@body)))))
 
 (defmacro defn [name [& args] & body]
-  (let [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
+  (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
     `(defn-clj ~name [~@argaliases]
        (with-trace* ~name [~@argaliases]
-         (let [[~@args] [~@argaliases]]
+         (let-clj [[~@args] [~@argaliases]]
            ~@body)))))
 
 (defmacro with-trace-data [data & body]
-  `(binding-clj [+callinfo+ (update +callinfo+ :data merge ~data)]
-                ~@body))
+  `(binding [+callinfo+ (update +callinfo+ :data merge ~data)]
+     ~@body))
 
 
 (defmacro log-data [name & [msg data]]
-  (let [datasym (gensym (str name "-data-"))]
-    `(let [~datasym ~data]
+  (let-clj [datasym (gensym (str name "-data-"))]
+    `(let-clj [~datasym ~data]
        (-> +callinfo+
            (assoc :name ~(str name)
                   :time (java.util.Date.)
@@ -95,30 +95,30 @@
   (or (some-> data meta ::callinfo)
       {:info #{:incomplete-history}}))
 
-(defmacro binding [[& bindings] & body]
-  (let [bindings   (partition 2 bindings)
-        aliases    (repeatedly (count bindings) gensym)]
-    `(let [~@(mapcat (fn-clj [[sym value] alias]
-                             `[~alias ~value])
-                     bindings aliases)
-           ~@(mapcat (fn-clj [[sym value] alias]
-                             `[~sym ~alias])
-                     bindings aliases)]
-       (binding-clj [+callinfo+ (reduce (fn-clj [callinfo# alias#]
-                                                (merge callinfo# (detach alias#)))
-                                        +callinfo+ (list ~@aliases))]
-                    ~@body))))
+(defmacro let [[& bindings] & body]
+  (let-clj [bindings   (partition 2 bindings)
+            aliases    (repeatedly (count bindings) gensym)]
+    `(let-clj [~@(mapcat (fn-clj [[sym value] alias]
+                                 `[~alias ~value])
+                         bindings aliases)
+               ~@(mapcat (fn-clj [[sym value] alias]
+                                 `[~sym ~alias])
+                         bindings aliases)]
+       (binding [+callinfo+ (reduce (fn-clj [callinfo# alias#]
+                                            (merge callinfo# (detach alias#)))
+                                    +callinfo+ (list ~@aliases))]
+         ~@body))))
 
 
 
-#_(let [foo1r (a/chan)
-      foo1a (a/chan)
-      foo2r (a/chan)
-      foo2a (a/chan)]
+#_(let-clj [foo1r (a/chan)
+          foo1a (a/chan)
+          foo2r (a/chan)
+          foo2a (a/chan)]
 
   (a/go-loop [x (a/<! foo1r)]
     (when-not (nil? x)
-      (binding [[x] x]
+      (let [[x] x]
         (with-trace inside-foo1
           (warn foo11 "foo1-1" x)
           (Thread/sleep (rand-int 1000))
@@ -128,7 +128,7 @@
 
   (a/go-loop [x (a/<! foo2r)]
     (when-not (nil? x)
-      (binding [x x]
+      (let [x x]
         (warn foo21 "foo2-1" x)
         (Thread/sleep (rand-int 1000))
         (info foo22 "foo2-2" x)
@@ -137,23 +137,23 @@
 
   (defn bar1 [x]
     (warn bar11 "bar1-1" x)
-    (let [r (doall (pvalues (do (a/put! foo1r (->> x inc vector attach))
-                                (let [[res] (a/<!! foo1a)]
-                                  res))
-                            (do (a/put! foo2r (->> x inc attach))
-                                (let [res (a/<!! foo2a)]
-                                  res))))]
+    (let-clj [r (doall (pvalues (do (a/put! foo1r (->> x inc vector attach))
+                                    (let [[res] (a/<!! foo1a)]
+                                      res))
+                                (do (a/put! foo2r (->> x inc attach))
+                                    (let [res (a/<!! foo2a)]
+                                      res))))]
       (info bar12 "bar1-2" x)
       r))
 
   (defn bar2 [x]
     (warn bar21 "bar2-1" x)
-    (let [r (doall (pvalues (do (a/put! foo1r (->> x inc vector attach))
-                                (let [[res] (a/<!! foo1a)]
-                                  res))
-                            (do (a/put! foo2r (->> x inc attach))
-                                (let [res (a/<!! foo2a)]
-                                  res))))]
+    (let-clj [r (doall (pvalues (do (a/put! foo1r (->> x inc vector attach))
+                                    (let [[res] (a/<!! foo1a)]
+                                      res))
+                                (do (a/put! foo2r (->> x inc attach))
+                                    (let [res (a/<!! foo2a)]
+                                      res))))]
       (info bar22 "bar2-2" x)
       r))
 
