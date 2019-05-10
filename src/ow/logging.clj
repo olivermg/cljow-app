@@ -9,7 +9,14 @@
 
 (def ^:dynamic +callinfo+ {:trace []})
 
-(defmacro make-trace-info* [name & args]
+(defn-clj merge-loginfo [loginfo1 loginfo2]
+  (update loginfo2 :trace #(-> (concat (:trace loginfo1) %)
+                               vec)))
+
+(defn-clj merge-loginfos [& loginfos]
+  (reduce merge-loginfo loginfos))
+
+(defmacro make-trace-info* [name & args]  ;; TODO: create record for trace step, to prevent overly verbose printing (e.g. of large arguments)
   `(into {:id   (rand-int 10000)
           :time (java.util.Date.)
           :fn   ~(str *ns* "/" name)}
@@ -20,30 +27,46 @@
   `(binding [+callinfo+ (update +callinfo+ :trace conj (make-trace-info* ~name ~@args))]
      ~@body))
 
-(defmacro with-trace [name & body]
+(defmacro with-trace
+  "Adds an entry into the current trace history."
+  [name & body]
   `(with-trace* ~name []
      ~@body))
 
-(defmacro fn [name [& args] & body]
+(defmacro fn
+  "Same as clojure.core/fn, but also adds an entry into the current trace history upon invocation of the fn."
+  [name [& args] & body]
   (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
     `(fn-clj ~name [~@argaliases]
              (with-trace* ~name [~@argaliases]
                (let-clj [[~@args] [~@argaliases]]
                  ~@body)))))
 
-(defmacro defn [name [& args] & body]
+(defmacro defn
+  "Same as clojure.core/defn, but also adds en entry into the current trace history upon invocation of the defn."
+  [name [& args] & body]
   (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
     `(defn-clj ~name [~@argaliases]
        (with-trace* ~name [~@argaliases]
          (let-clj [[~@args] [~@argaliases]]
            ~@body)))))
 
-(defmacro with-trace-data [data & body]
+(defmacro with-trace-data
+  "Adds user data into the current trace info map that will be available in subsequent log invocations."
+  [data & body]
   `(binding [+callinfo+ (update +callinfo+ :data merge ~data)]
      ~@body))
 
 
-(defmacro log-data [name & [msg data]]
+(defn-clj get-trace-root
+  "Returns the root/first/topmost entry in the current trace history."
+  []
+  (get-in +callinfo+ [:trace 0]))
+
+
+(defmacro log-data
+  "Returns the current trace info map plus some augmented data (e.g. timestamp)."
+  [name & [msg data]]
   (let-clj [datasym (gensym (str name "-data-"))]
     `(let-clj [~datasym ~data]
        (-> +callinfo+
@@ -59,10 +82,14 @@
                                      {~(keyword datasym) ~datasym}))
               `identity)))))
 
-(defmacro log-str [name & [msg data]]
+(defmacro log-str
+  "Returns the current trace info map formatted as string."
+  [name & [msg data]]
   `(pr-str (log-data ~name ~msg ~data)))
 
-(defmacro log [level name & [msg data]]
+(defmacro log
+  "Prints a log message based on the current trace info map."
+  [level name & [msg data]]
   `(log/log ~level (log-str ~name ~msg ~data)))
 
 (defmacro trace [name & [msg data]]
@@ -84,17 +111,31 @@
   `(log :fatal ~name ~msg ~data))
 
 
-(defn-clj attach [data]
+(defn-clj attach
+  "Attaches the current trace info map as metadata to data. Will not do anything if data is
+   not an instance of IObj, because metadata cannot be attached in this case."
+  [data]
   (if (instance? IObj data)
     (with-meta data
       {::callinfo +callinfo+})
-    (do (info attach "can not attach log information to data not implementing IObj" {:data data})
+    (do (info attach "cannot attach log information to data not implementing IObj" {:data data})
         data)))
 
-(defn-clj detach [data]
+(defn-clj detach
+  "Returns the attached trace info map from data."
+  [data]
   (some-> data meta ::callinfo))
 
-(defmacro let [[& bindings] & body]
+(defmacro with-loginfo
+  "Sets the current trace info map to loginfo."
+  [loginfo & body]
+  `(binding [+callinfo+ (merge-loginfo ~loginfo +callinfo+)]
+     ~@body))
+
+(defmacro let
+  "Like clojure.core/let, but also sets the current trace info map to
+  potential trace info maps that might be attached to the given values."
+  [[& bindings] & body]
   (let-clj [bindings   (partition 2 bindings)
             aliases    (repeatedly (count bindings) gensym)]
     `(let-clj [~@(mapcat (fn-clj [[sym value] alias]
@@ -103,9 +144,7 @@
                ~@(mapcat (fn-clj [[sym value] alias]
                                  `[~sym ~alias])
                          bindings aliases)]
-       (binding [+callinfo+ (reduce (fn-clj [callinfo# alias#]
-                                            (merge callinfo# (detach alias#)))
-                                    +callinfo+ (list ~@aliases))]
+       (binding [+callinfo+ (apply merge-loginfos (list ~@aliases +callinfo+))]
          ~@body))))
 
 
