@@ -92,8 +92,7 @@
         data)))
 
 (defn-clj detach [data]
-  (or (some-> data meta ::callinfo)
-      {:info #{:incomplete-history}}))
+  (some-> data meta ::callinfo))
 
 (defmacro let [[& bindings] & body]
   (let-clj [bindings   (partition 2 bindings)
