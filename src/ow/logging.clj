@@ -33,22 +33,59 @@
   `(with-trace* ~name []
      ~@body))
 
+(defn-clj lhs-aliases [args]
+  (letfn [(map-name [m]
+            (str (or (reduce (fn-clj [name [k v]]
+                                     (if (= k :as)
+                                       v
+                                       name))
+                             nil m)
+                     "destructed-map")
+                 "-"))
+
+          (vec-name [v]
+            (str (or (some-> (reduce (fn-clj [[capture? name] elem]
+                                             (cond
+                                               capture?     [false elem]
+                                               (= elem :as) [true  name]
+                                               true         [false name]))
+                                     [false nil] v)
+                             second)
+                     "destructred-vector")
+                 "-"))
+
+          (alias-arg [arg]
+            (cond
+              (map? arg)    (gensym (map-name arg))
+              (vector? arg) (gensym (vec-name arg))
+              (symbol? arg) (if (not= arg '&)
+                              (gensym (str arg "-"))
+                              arg)
+              true          (throw (ex-info "don't know how to create alias for arg" {:arg arg}))))]
+
+    (map alias-arg args)))
+
+(defn-clj remove-& [lhs-aliases]
+  (remove #(= % '&) lhs-aliases))
+
 (defmacro fn
   "Same as clojure.core/fn, but also adds an entry into the current trace history upon invocation of the fn."
   [name [& args] & body]
-  (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
-    `(fn-clj ~name [~@argaliases]
-             (with-trace* ~name [~@argaliases]
-               (let-clj [[~@args] [~@argaliases]]
+  (let-clj [lhs (lhs-aliases args)
+            rhs (remove-& lhs)]  ;; simplify e.g. destructuring
+    `(fn-clj ~name [~@lhs]
+             (with-trace* ~name [~@rhs]
+               (let-clj [[~@(remove-& args)] [~@rhs]]
                  ~@body)))))
 
 (defmacro defn
   "Same as clojure.core/defn, but also adds en entry into the current trace history upon invocation of the defn."
   [name [& args] & body]
-  (let-clj [argaliases (repeatedly (count args) gensym)]  ;; simplify e.g. destructuring
-    `(defn-clj ~name [~@argaliases]
-       (with-trace* ~name [~@argaliases]
-         (let-clj [[~@args] [~@argaliases]]
+  (let-clj [lhs (lhs-aliases args)
+            rhs (remove-& lhs)]  ;; simplify e.g. destructuring
+    `(defn-clj ~name [~@lhs]
+       (with-trace* ~name [~@rhs]
+         (let-clj [[~@(remove-& args)] [~@rhs]]
            ~@body)))))
 
 (defmacro with-trace-data
@@ -136,15 +173,15 @@
   "Like clojure.core/let, but also sets the current trace info map to
   potential trace info maps that might be attached to the given values."
   [[& bindings] & body]
-  (let-clj [bindings   (partition 2 bindings)
-            aliases    (repeatedly (count bindings) gensym)]
+  (let-clj [bindings (partition 2 bindings)
+            rhs      (->> bindings (map first) lhs-aliases remove-&)]
     `(let-clj [~@(mapcat (fn-clj [[sym value] alias]
                                  `[~alias ~value])
-                         bindings aliases)
+                         bindings rhs)
                ~@(mapcat (fn-clj [[sym value] alias]
                                  `[~sym ~alias])
-                         bindings aliases)]
-       (binding [+callinfo+ (apply merge-loginfos (list ~@aliases +callinfo+))]
+                         bindings rhs)]
+       (binding [+callinfo+ (apply merge-loginfos (list ~@rhs +callinfo+))]
          ~@body))))
 
 
@@ -184,7 +221,7 @@
       (info bar12 "bar1-2" x)
       r))
 
-  (defn bar2 [x]
+  (defn bar2 [x {:keys [d1] :as mmm} [d2 :as vvv] & {:keys [xyz]}]
     (warn bar21 "bar2-1" x)
     (let-clj [r (doall (pvalues (do (a/put! foo1r (->> x inc vector attach))
                                     (let [[res] (a/<!! foo1a)]
@@ -199,7 +236,7 @@
     (warn baz1 "baz-1" x)
     (with-trace-data {:user "user123"}
       (pvalues (bar1 (inc x))
-               (bar2 (inc x))))
+               (bar2 (inc x) nil nil)))
     (info baz2 "baz-2" x))
 
   (baz 123)
@@ -208,3 +245,6 @@
   (a/close! foo2r)
   (a/close! foo1a)
   (a/close! foo1r))
+
+#_(defn foo [a b {:keys [c d] :as m} [e f :as v] & [g h]]
+  [a b c d e f g h])
