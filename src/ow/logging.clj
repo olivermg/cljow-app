@@ -23,7 +23,7 @@
   (reduce merge-loginfo loginfos))
 
 (defmacro make-trace-info* [name & args]  ;; TODO: create record for trace step, to prevent overly verbose printing (e.g. of large arguments)
-  `(into {:id   (rand-int Long/MAX_VALUE)
+  `(into {:id   (rand-int Integer/MAX_VALUE)
           :time (java.util.Date.)
           :fn   ~(str *ns* "/" name)}
          [~(when-not (empty? args)
