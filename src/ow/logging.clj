@@ -11,7 +11,7 @@
 
 (defn-clj pr-str-map-vals [m]
   (->> m
-       (map (fn [[k v]]
+       (map (fn-clj [[k v]]
               [k (pr-str v)]))
        (into {})))
 
