@@ -9,6 +9,12 @@
 
 (def ^:dynamic +callinfo+ {:trace []})
 
+(defn-clj pr-str-map-vals [m]
+  (->> m
+       (map (fn [[k v]]
+              [k (pr-str v)]))
+       (into {})))
+
 (defn-clj merge-loginfo [loginfo1 loginfo2]
   (update loginfo2 :trace #(-> (concat (:trace loginfo1) %)
                                vec)))
@@ -17,11 +23,11 @@
   (reduce merge-loginfo loginfos))
 
 (defmacro make-trace-info* [name & args]  ;; TODO: create record for trace step, to prevent overly verbose printing (e.g. of large arguments)
-  `(into {:id   (rand-int 10000)
+  `(into {:id   (rand-int Long/MAX_VALUE)
           :time (java.util.Date.)
           :fn   ~(str *ns* "/" name)}
          [~(when-not (empty? args)
-             `[:args (list ~@args)])]))
+             `[:args (map pr-str (list ~@args))])]))
 
 (defmacro with-trace* [name [& args] & body]
   `(binding [+callinfo+ (update +callinfo+ :trace conj (make-trace-info* ~name ~@args))]
@@ -91,7 +97,7 @@
 (defmacro with-trace-data
   "Adds user data into the current trace info map that will be available in subsequent log invocations."
   [data & body]
-  `(binding [+callinfo+ (update +callinfo+ :data merge ~data)]
+  `(binding [+callinfo+ (update +callinfo+ :data merge (pr-str-map-vals ~data))]
      ~@body))
 
 
@@ -111,12 +117,12 @@
                   :time (java.util.Date.)
                   :ns   ~(str *ns*))
            ~(if msg
-              `(assoc :msg ~msg)
+              `(assoc :msg (str ~msg))
               `identity)
            ~(if data
               `(update :data merge (if (map? ~datasym)
-                                     ~datasym
-                                     {~(keyword datasym) ~datasym}))
+                                     (pr-str-map-vals ~datasym)
+                                     {~(keyword datasym) (pr-str ~datasym)}))
               `identity)))))
 
 (defmacro log-str
