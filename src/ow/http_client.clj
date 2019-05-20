@@ -8,5 +8,6 @@
   (letfn [(sni-configure [^SSLEngine ssl-engine ^URI uri]
             (let [^SSLParameters ssl-params (.getSSLParameters ssl-engine)]
               (.setServerNames ssl-params [(SNIHostName. (.getHost uri))])
-              (.setSSLParameters ssl-engine ssl-params)))]
+              (.setSSLParameters ssl-engine ssl-params)
+              (.setUseClientMode ssl-engine true)))]
     (http/make-client {:ssl-configurer sni-configure})))

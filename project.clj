@@ -11,7 +11,7 @@
                  [clj-time "0.15.0"]
                  [org.clojure/core.async "0.4.490"]
                  [digest "1.4.8"]
-                 [http-kit "2.3.0"]
+                 [http-kit "2.4.0-alpha4"]
                  [integrant "0.7.0"]
                  #_[org.apache.kafka/kafka-clients "2.1.1"]
                  #_[org.apache.kafka/kafka-streams "2.1.1"]
