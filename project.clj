@@ -17,7 +17,7 @@
                  [integrant "0.7.0"]
                  #_[org.apache.kafka/kafka-clients "2.1.1"]
                  #_[org.apache.kafka/kafka-streams "2.1.1"]
-                 [org.clojure/clojure "1.10.0"]
+                 [org.clojure/clojure "1.10.0" :scope "provided"]
                  [org.clojure/tools.logging "0.4.1"]
                  [spootnik/signal "0.2.2"]
                  [trptcolin/versioneer "0.2.0"]
