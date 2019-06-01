@@ -9,6 +9,8 @@
 
   :dependencies [[aero "1.1.3"]
                  [clj-time "0.15.0"]
+                 [cljow-log "0.1.0-SNAPSHOT"]
+                 [cljow-system "0.1.0-SNAPSHOT"]
                  [org.clojure/core.async "0.4.490"]
                  [digest "1.4.8"]
                  [http-kit "2.4.0-alpha4"]
@@ -19,6 +21,6 @@
                  [org.clojure/tools.logging "0.4.1"]
                  [spootnik/signal "0.2.2"]
                  [trptcolin/versioneer "0.2.0"]
-                 [ubergraph "0.5.2"]]
+                 #_[ubergraph "0.5.2"]]
 
   :profiles {:dev {:dependencies [[org.apache.logging.log4j/log4j-core "2.11.2"]]}})
