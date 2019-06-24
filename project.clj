@@ -9,8 +9,8 @@
 
   :dependencies [[aero "1.1.3"]
                  [clj-time "0.15.0"]
-                 [cljow-log "0.1.0-SNAPSHOT"]
-                 [cljow-system "0.1.0-SNAPSHOT"]
+                 [cljow-log "0.1.1"]
+                 [cljow-system "0.1.1-SNAPSHOT"]
                  [org.clojure/core.async "0.4.490"]
                  [digest "1.4.8"]
                  [http-kit "2.4.0-alpha4"]
@@ -25,4 +25,15 @@
 
   :profiles {:dev {:dependencies [[org.apache.logging.log4j/log4j-core "2.11.2"]]}}
 
-  :pedantic? :abort)
+  :pedantic? :abort
+
+  :release-tasks [["vcs" "assert-committed"]
+                  ["change" "version" "leiningen.release/bump-version" "release"]
+                  ["vcs" "commit"]
+                  ["vcs" "tag"]
+                  ["deploy" "clojars"]
+                  #_["clean"]
+                  #_["uberjar"]
+                  ["change" "version" "leiningen.release/bump-version"]
+                  ["vcs" "commit"]
+                  #_["vcs" "push"]])
