@@ -1,6 +1,7 @@
 (ns ow.app.info
   (:require [clojure.string :as str]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [trptcolin.versioneer.core :as version]
             [digest :refer [sha-256]]))
 

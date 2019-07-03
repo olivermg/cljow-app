@@ -1,6 +1,7 @@
 (ns ow.comm
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [ow.lifecycle :as owl]))
 
 ;;; TODO: can we generalize the concept of tracing request-/invocation-chains for logging?
@@ -13,7 +14,7 @@
                        "(n/a)"))))
 
 (defn- trace-request [msg & [this]]
-  (log/trace (trace-info this) msg))
+  (log/trace msg (trace-info this)))
 
 
 

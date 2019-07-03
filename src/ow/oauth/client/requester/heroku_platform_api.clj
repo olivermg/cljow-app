@@ -2,7 +2,8 @@
   (:require [clj-time.core :as t]
             [clj-time.coerce :as tc]
             [clojure.data.json :as json]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [org.httpkit.client :as http]
             [ow.http-client :as ohc]
             [ow.lifecycle :as ol]
@@ -22,13 +23,13 @@
     (let [form-params {:grant_type    "authorization_code"
                        :code          code
                        :client_secret client-secret}
-          _ (log/trace "sending heroku grant" form-params)
+          _ (log/trace "sending heroku grant" {:form-params form-params})
           {{:keys [access_token refresh_token expires_in token_type] :as body} :body :as response}
           (-> @(http/post "https://id.heroku.com/oauth/token"
                           {:client      http-client
                            :form-params form-params})
               (handle-http-response))]
-      (log/trace "received heroku grant response" response)
+      (log/trace "received heroku grant response" {:response response})
       {:access-token  access_token
        :refresh-token refresh_token
        :expires-at    (->> (- (or expires_in 0) 30)
@@ -57,7 +58,7 @@
                                                 options))
           response (-> @(http/request options)
                        (handle-http-response))]
-      (log/trace "received heroku request response" response)
+      (log/trace "received heroku request response" {:response response})
       (select-keys response #{:status :body}))))
 
 (defmethod ol/start* HerokuPartnerApiOAuthRequester [this dependencies]

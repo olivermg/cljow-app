@@ -1,6 +1,7 @@
 (ns ow.comm-system
   (:require [clojure.core.async :as a]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [ow.comm :as c]))
 
 ;;; example for definition:

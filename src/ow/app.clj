@@ -1,6 +1,7 @@
 (ns ow.app
   (:require #_[clojure.java.io :as io]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             #_[integrant.core :as ig]
             #_[ow.app.config :as cfg]
             [ow.app.info :as info]

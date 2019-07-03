@@ -1,5 +1,6 @@
 (ns ow.oauth.client.token-storage.memory
-  (:require [clojure.tools.logging :as log]
+  (:require #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [ow.lifecycle :as ol]
             [ow.oauth.client.token-storage :as oocts]))
 
@@ -11,11 +12,11 @@
 
   (get-token [this id]
     (let [token (get @+storage+ id)]
-      (log/trace "GET TOKEN" id token)
+      (log/trace "GET TOKEN" {:id id :token token})
       token))
 
   (set-token [this id token-data]
-    (log/trace "STORE TOKEN" id token-data)
+    (log/trace "STORE TOKEN" {:id id :token-data token-data})
     (swap! +storage+ update id #(merge % token-data))))
 
 (defmethod ol/start* MemoryTokenStorage [this dependencies]

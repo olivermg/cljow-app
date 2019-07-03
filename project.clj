@@ -9,7 +9,7 @@
 
   :dependencies [[aero "1.1.3"]
                  [clj-time "0.15.0"]
-                 [cljow-log "0.1.1"]
+                 [cljow-log "0.1.2-SNAPSHOT"]
                  [cljow-system "0.1.1-SNAPSHOT"]
                  [org.clojure/core.async "0.4.490"]
                  [digest "1.4.8"]

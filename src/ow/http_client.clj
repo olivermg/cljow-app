@@ -1,5 +1,6 @@
 (ns ow.http-client
-  (:require [clojure.tools.logging :as log]
+  (:require #_[clojure.tools.logging :as log]
+            [ow.logging.api.alpha :as log]
             [org.httpkit.client :as http])
   (:import [java.net URI]
            [javax.net.ssl SSLEngine SSLParameters SNIHostName]))
